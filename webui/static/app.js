@@ -176,8 +176,12 @@ function badge(st) {
 /* ── views ────────────────────────────────────────────────────── */
 async function render(promise) {
   app.innerHTML = '<div class="loading">Loading…</div>';
-  const html = await promise;
-  app.innerHTML = html;
+  try {
+    const html = await promise();   // <-- funkci je nutné ZAVOLAT
+    app.innerHTML = html;
+  } catch (e) {
+    app.innerHTML = `<div class="card"><h2>Chyba</h2><pre class="console">${esc(e.message || String(e))}</pre></div>`;
+  }
 }
 
 async function loadConfig() {
