@@ -27,3 +27,6 @@ Thumbs.db
 # (složka output/ je u upstreamu částečně tracknutá; lokální běhy ukládáme
 #  do output/ a jen vybrané výsledky commitneme vědomě)
 *.log
+
+# Web UI project data (generovaná uživatelská data, nepatří do gitu)
+projects/
