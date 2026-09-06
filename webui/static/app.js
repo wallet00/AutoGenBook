@@ -17,7 +17,7 @@ const I18N = {
     back: "← Zpět",
     updated: "Změněno",
     no_projects: "Zatím žádné projekty. Vytvoř první.",
-    tabs: { spec: "1 · Osnova", kb: "2 · Materiály", run: "3 · Generování", out: "4 · Výstup" },
+    tabs: { spec: "1 · Osnova", kb: "2 · Materiály", run: "3 · Generování", out: "4 · Výstup", prom: "5 · Editor promptů" },
     spec_hint: "Zde je osnova (input spec pro AutoGenBook). Uprav a ulož.",
     save: "Uložit osnovu",
     saved: "Uloženo",
@@ -103,7 +103,7 @@ const I18N = {
     back: "← Back",
     updated: "Updated",
     no_projects: "No projects yet. Create the first one.",
-    tabs: { spec: "1 · Outline", kb: "2 · Materials", run: "3 · Generate", out: "4 · Output" },
+    tabs: { spec: "1 · Outline", kb: "2 · Materials", run: "3 · Generate", out: "4 · Output", prom: "5 · Prompt Editor" },
     spec_hint: "This is the outline (input spec for AutoGenBook). Edit and save.",
     save: "Save outline",
     saved: "Saved",
@@ -179,7 +179,11 @@ const I18N = {
 
 let LANG = "cs";
 const T = (k) => (I18N[LANG][k] ?? I18N.cs[k] ?? k);
-const TL = (k) => (I18N[LANG].tabs[k]);
+// fallback: nikdy nevykreslit 'undefined'
+const TL = (k) => {
+  const v = (I18N[LANG].tabs && I18N[LANG].tabs[k]) || (I18N.cs.tabs && I18N.cs.tabs[k]) || k;
+  return (v === undefined || v === null || String(v).trim() === "") ? k : v;
+};
 
 const app = document.getElementById("app");
 /* Globální stav běhu (nezávislý na aktivní záložce) */
