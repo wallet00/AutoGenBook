@@ -1,12 +1,12 @@
 # AutoGenBook UI — nasazení na e-INFRA (Rancher / Kubernetes)
-# Jeden soubor se všemi objekty. Měníš jen dva placeholdery:
-#   1) <DOCKERHUB_USER>   → tvé uživatelské jméno na Docker Hubu
+# Jeden soubor se všemi objekty. Měníš jen:
+#   1) e-INFRA klíč a heslo UI v Secret níže
 #   2) hostname u Ingressu → adresa, na kterou ti e-INFRA umožní přístup
 #
+# Image je na Docker Hubu: docker.io/wallet007/autogenbook:latest
+#
 # Postup:
-#   docker build -t <DOCKERHUB_USER>/autogenbook:latest .
-#   docker login
-#   docker push <DOCKERHUB_USER>/autogenbook:latest
+#   (viz deploy/push.bat nebo ručně:) docker login && docker push wallet007/autogenbook:latest
 #   (v Rancheru: Import/Create from file → vložit tento soubor, nebo použi
 #    kubectl apply -n walletzky-ns -f deploy/einfra.yaml)
 ---
@@ -53,7 +53,7 @@ spec:
     spec:
       containers:
         - name: ui
-          image: docker.io/<DOCKERHUB_USER>/autogenbook:latest
+          image: docker.io/wallet007/autogenbook:latest
           # Přepíše ENTRYPOINT z Dockerfile (python main.py) → spustí UI server
           command: ["python", "-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
           ports:

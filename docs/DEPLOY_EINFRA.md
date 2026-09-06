@@ -271,7 +271,7 @@ kubectl -n walletzky-ns logs deploy/autogenbook-ui
 
 | Placeholder | Význam |
 |---|---|
-| `<REGISTRY>/autogenbook` | plné jméno image v registry (např. `docker.io/me/autogenbook`) |
+| `<REGISTRY>/autogenbook` | plné jméno image v registry (nyní `docker.io/wallet007/autogenbook`) |
 | `autogenbook.<tvoje-domena>.cz` | veřejná adresa UI |
 
 Pokud nevíš, jaké registry nebo DNS ti e-INFRA nabízí, pošli mi, co ti dal
