@@ -325,6 +325,7 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
                 ("target_audience", "Cílová skupina"),
                 ("tone_of_voice", "Tón textu"),
                 ("output_purpose", "Účel výstupu"),
+                ("language", "Jazyk výstupu"),
             ):
                 val = str(ui_params.get(key) or "").strip()
                 if val:
@@ -342,6 +343,13 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
             if str(ui_params.get("target_audience") or "").strip():
                 g.graph["target_readers"] = str(ui_params["target_audience"]).strip()
             extra_bits = []
+            lang = str(ui_params.get("language") or "").strip()
+            if lang:
+                # Jazyk je MANDATORY: má přednost před jazykem podkladů i instrukcí.
+                extra_bits.append(
+                    f"JAZYK VÝSTUPU (MUSÍ být dodržen bez ohledu na jazyk podkladů i instrukcí): {lang}"
+                )
+                g.graph["output_language"] = lang
             if str(ui_params.get("tone_of_voice") or "").strip():
                 extra_bits.append(f"Tón textu: {ui_params['tone_of_voice'].strip()}")
             if str(ui_params.get("output_purpose") or "").strip():

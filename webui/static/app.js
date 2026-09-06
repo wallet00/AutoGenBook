@@ -64,6 +64,8 @@ const I18N = {
     param_audience: "Persona / Cílová skupina",
     param_tone: "Tón textu",
     param_purpose: "Účel výstupu",
+    param_language: "Jazyk výstupu",
+    param_language_note: "MUSÍ být dodržen bez ohledu na jazyk podkladů i instrukcí.",
     param_depth: "Doporučená hloubka členění",
     save_params: "Uložit parametry",
     outline_run: "1 · Vygenerovat pouze strukturu (Outline)",
@@ -150,6 +152,8 @@ const I18N = {
     param_audience: "Persona / Target audience",
     param_tone: "Tone of voice",
     param_purpose: "Output purpose",
+    param_language: "Output language",
+    param_language_note: "Must be respected regardless of the source-material or instruction language.",
     param_depth: "Recommended depth",
     save_params: "Save parameters",
     outline_run: "1 · Generate structure only (Outline)",
@@ -442,6 +446,15 @@ function renderParamsForm() {
     <div class="params-grid">
       <div class="field"><label>${T("param_title")}</label>
         <input type="text" id="an-title" value="${f("suggested_title", "")}" placeholder="…" /></div>
+      <div class="field"><label>${T("param_language")}</label>
+        <input type="text" id="an-language" list="an-lang-list" value="${f("language", "English")}" placeholder="English" />
+        <datalist id="an-lang-list">
+          <option value="English"></option><option value="Čeština"></option>
+          <option value="Deutsch"></option><option value="Español"></option>
+          <option value="Français"></option><option value="Italiano"></option>
+          <option value="Polski"></option><option value="Slovenčina"></option>
+        </datalist>
+        <p class="muted" style="font-size:11px;margin:4px 0 0">${T("param_language_note")}</p></div>
       <div class="field"><label>${T("param_depth")}</label>
         <select id="an-depth" class="btn">
           ${[2,3,4,5].map((d) => `<option value="${d}" ${(!depth || depth===d) && d===3 ? "selected" : depth===d ? "selected" : ""}>${d}</option>`).join("")}
@@ -465,6 +478,7 @@ async function saveParams() {
     tone_of_voice: document.getElementById("an-tone").value.trim(),
     output_purpose: document.getElementById("an-purpose").value.trim(),
     recommended_depth: Number(document.getElementById("an-depth").value) || 3,
+    language: (document.getElementById("an-language").value.trim() || "English"),
   };
   try {
     const r = await apiJSON(`/api/projects/${window._pid}/analysis`, "PUT", payload);

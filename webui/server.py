@@ -272,7 +272,7 @@ def delete_kb(pid: str, filename: str):
 
 
 # ── Analysis (Setup Assistant) ────────────────────────────────────
-ANALYSIS_FIELDS = ("suggested_title", "target_audience", "tone_of_voice", "output_purpose", "recommended_depth")
+ANALYSIS_FIELDS = ("suggested_title", "target_audience", "tone_of_voice", "output_purpose", "recommended_depth", "language")
 
 
 @app.post("/api/projects/{pid}/analyze-spec")
@@ -303,6 +303,7 @@ def analyze_spec(pid: str):
         "suggested_title (string), target_audience (string, 15-40 slov, např. \"Studenti informatiky a Service Designu na FI MUNI\"), "
         "tone_of_voice (string, krátký popis stylu, např. \"Akademický výkladový text s IT/SaaS příklady\"), "
         "output_purpose (string, např. \"Textbook / Podklad pro NotebookLM\"), "
+        "language (string, JAZYK generovaných podkladů — např. \"English\" / \"Čeština\"; pokud osnova nic neříká, dej \"English\"), "
         "recommended_depth (integer 2-5). Bez žádného textu mimo JSON."
     )
     user = f"OSNOVA / SYLABUS:\n{spec}\n"
@@ -328,6 +329,7 @@ def analyze_spec(pid: str):
         "tone_of_voice": str(result.get("tone_of_voice") or "").strip()[:300],
         "output_purpose": str(result.get("output_purpose") or "").strip()[:200],
         "recommended_depth": max(2, min(5, depth)),
+        "language": str(result.get("language") or "").strip()[:60] or "English",
     }
     meta["analysis"] = suggested
     meta["updated"] = _now()
