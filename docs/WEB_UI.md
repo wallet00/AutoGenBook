@@ -8,10 +8,11 @@ nové osnovy + dalších zdrojů vygenerovat základní výukový dokument po ka
 
 ```bash
 docker compose up -d ui
-# otevři http://localhost:8080
+# otevři http://localhost:8082
 ```
 
 - Služba `ui` spouští FastAPI server (`webui.server:app`) uvnitř stejného obrazu jako CLI.
+  Hostitelský port **8082** je mapovaný na vnitřní 8080 (lze změnit v `docker-compose.yml`).
 - Projekty se ukládají do `./projects/<id>/` (bind-mount) a přežijí restart kontejneru.
 - Poskytovatel/model se čtou z `.env` (e-INFRA: `AUTOGENBOOK_LLM_BASE_URL`,
   `AUTOGENBOOK_LLM_API_KEY`, `AUTOGENBOOK_LLM_MODEL`).
