@@ -84,6 +84,7 @@ const I18N = {
     node_modal_title: "⚡ Vygenerovat tento uzel",
     node_modal_kb_hint: "Nevybráno = použít celou znalostní bázi.",
     node_include: "Zahrnout stávající vygenerovaný text jako kontext (přepsat/vylepšit)",
+    node_rag: "Povolit Web RAG (vyhledávání na internetu) pro tuto sekci",
     node_prompt: "Specifické instrukce pro tuto kapitolu",
     node_prompt_ph: "Např: Zaměř se na S-D logiku v SaaS, vysvětli rozdíl Value-in-Exchange vs Value-in-Use na příkladu Spotify.",
     node_kb_title: "Prioritní zdroje (kb/) — MUSÍ být použity",
@@ -172,6 +173,7 @@ const I18N = {
     node_modal_title: "⚡ Generate this node",
     node_modal_kb_hint: "None selected = use the whole knowledge base.",
     node_include: "Include existing generated text as context (rewrite/improve)",
+    node_rag: "Enable Web RAG (internet search) for this section",
     node_prompt: "Specific instructions for this chapter",
     node_prompt_ph: "e.g. Focus on S-D logic in SaaS, explain Value-in-Exchange vs Value-in-Use using Spotify as an example.",
     node_kb_title: "Priority sources (kb/) — MUST be used",
@@ -746,6 +748,7 @@ async function runSingleNode(nid, title) {
       <div class="modal">
         <h3>${T("node_modal_title")} — ${esc(title || nid)} <span class="muted">(${esc(nid)})</span></h3>
         <div class="check"><input type="checkbox" id="nmode-include" /> ${T("node_include")}</div>
+        <div class="check"><input type="checkbox" id="nmode-rag" /> ${T("node_rag")}</div>
         <div class="field"><label>${T("node_prompt")}</label>
           <textarea id="nmode-prompt" rows="3" placeholder="${esc(T("node_prompt_ph"))}"></textarea></div>
         <div class="field"><label>${T("node_kb_title")}</label>
@@ -774,7 +777,8 @@ async function runNode(nid) {
   const cfg = {
     mode: "single_node", node_id: nid,
     model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
-    enable_web_rag: false, audit_mode: "", pdf: false, export_tex: false,
+    enable_web_rag: !!(document.getElementById("nmode-rag") && document.getElementById("nmode-rag").checked),
+    audit_mode: "", pdf: false, export_tex: false,
     include_existing, custom_prompt, kb_files,
   };
   closeModal();

@@ -414,6 +414,8 @@ def _build_argv(pid: str, cfg: dict) -> list[str]:
         if not node_key:
             raise RunError("single_node vyžaduje node_id")
         argv += ["--single-node", node_key, "--resume", "--no-md", "--no-tex", "--no-pdf"]
+        if cfg.get("enable_web_rag"):
+            argv += ["--enable-web-rag"]
         return argv
 
     if cfg.get("enable_web_rag"):
