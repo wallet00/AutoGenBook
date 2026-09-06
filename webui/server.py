@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .runner import RunError, runner
@@ -20,6 +22,68 @@ PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
 UI_DIR = Path(__file__).parent
 app = FastAPI(title="AutoGenBook UI", version="0.1.0")
 app.mount("/static", StaticFiles(directory=str(UI_DIR / "static")), name="static")
+
+# ── Jednoduchá autentizace sdíleným heslem ────────────────────────
+# Zapne se jen když je nastaveno AUTOGENBOOK_UI_PASSWORD.
+# Kdo zná heslo, dostane se dovnitř (session cookie po dobu SESSION_TTL).
+AUTH_PASSWORD = os.environ.get("AUTOGENBOOK_UI_PASSWORD", "").strip()
+SESSION_COOKIE = "autogenbook_session"
+_sessions: dict[str, float] = {}  # token -> expirace (unix ts)
+SESSION_TTL = 12 * 3600  # 12 h
+
+
+def _auth_enabled() -> bool:
+    return bool(AUTH_PASSWORD)
+
+
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next):
+    if not _auth_enabled():
+        return await call_next(request)
+    path = request.url.path
+    if path == "/login" or path.startswith("/static/"):
+        return await call_next(request)
+    token = request.cookies.get(SESSION_COOKIE, "")
+    ok = token in _sessions and _sessions[token] > time.time()
+    if not ok:
+        if path.startswith("/api/") or path.startswith("/files"):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+    return await call_next(request)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(error: bool = False):
+    if not _auth_enabled():
+        return RedirectResponse("/", status_code=303)
+    html = (UI_DIR / "templates" / "login.html").read_text(encoding="utf-8")
+    return html.replace("{{error_style}}", "display:block" if error else "display:none")
+
+
+@app.post("/login")
+async def login_post(request: Request):
+    if not _auth_enabled():
+        return RedirectResponse("/", status_code=303)
+    form = await request.form()
+    if form.get("password") == AUTH_PASSWORD:
+        token = secrets.token_hex(32)
+        _sessions[token] = time.time() + SESSION_TTL
+        resp = RedirectResponse("/", status_code=303)
+        resp.set_cookie(
+            SESSION_COOKIE, token, httponly=True, samesite="lax",
+            max_age=SESSION_TTL, secure=request.url.scheme == "https",
+        )
+        return resp
+    return RedirectResponse("/login?error=1", status_code=303)
+
+
+@app.get("/logout")
+def logout(request: Request):
+    token = request.cookies.get(SESSION_COOKIE, "")
+    _sessions.pop(token, None)
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
 
 DEFAULT_SPEC = """Název: NÁZEV PŘEDMĚTU
 Obsah: Stručný popis předmětu a cíl.
@@ -89,7 +153,7 @@ def api_config():
         or os.environ.get("OPENROUTER_API_KEY")
         or env.get("OPENROUTER_API_KEY")
     )
-    return {"base_url": base_url, "model": model, "has_key": has_key}
+    return {"base_url": base_url, "model": model, "has_key": has_key, "auth": _auth_enabled()}
 
 
 # ── Projects ───────────────────────────────────────────────────────

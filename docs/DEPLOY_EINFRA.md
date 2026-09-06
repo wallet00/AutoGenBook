@@ -17,10 +17,14 @@ přežijí restart podu.
   používáš Docker Desktop (build proběhne uvnitř WSL) — pro push na registry to
   nevadí.
 - Máš přístup k **registry**, ze kterého dokáže e-INFRA cluster pullovat
-  (např. veřejný Docker Hub, nebo **Harbor** e-INFRA / GitLab registry vaší
-  instituce). Níže používám `<REGISTRY>/autogenbook` jako placeholder — nahraď
-  svým skutečným názvem image.
-- V Rancheru máš projekt/namespace, kam můžeš deploynout.
+  (např. veřejný Docker Hub, nebo **GitLab Container Registry**). Níže používám
+  `<REGISTRY>/autogenbook` jako placeholder — nahraď svým skutečným názvem image.
+
+  **Používáš-li GitLab (registry.gitlab.fi.muni.cz):** image path je většinou
+  `registry.gitlab.fi.muni.cz/<skupina>/<projekt>:v0.1` — přesnou adresu najdeš
+  v projektu v sekci **Deploy → Container Registry** (Packages & Registries).
+- V Rancheru máš **namespace `walletzky-ns`** (všechny objekty níže jej používají).
+- Hostname do Ingressu si nastavuješ sám.
 
 ---
 
@@ -64,7 +68,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: autogenbook-env
-  namespace: autogenbook
+  namespace: walletzky-ns
 type: Opaque
 stringData:
   AUTOGENBOOK_LLM_BASE_URL: "https://llm.ai.e-infra.cz/v1"
@@ -73,6 +77,8 @@ stringData:
   AUTOGENBOOK_NONINTERACTIVE: "1"
   AUTOGENBOOK_ASSUME_YES: "1"
   PYTHONUTF8: "1"
+  # heslo UI — kdo ho zná, dostane se dovnitř (jinak nech prázdné → UI bez hesla)
+  AUTOGENBOOK_UI_PASSWORD: "zvol-silne-heslo"
 ```
 
 > Runner i CLI čtou tyto proměnné z `os.environ`, takže je subproces běhu zdědí
@@ -85,7 +91,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: autogenbook-projects
-  namespace: autogenbook
+  namespace: walletzky-ns
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
@@ -105,7 +111,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: autogenbook-ui
-  namespace: autogenbook
+  namespace: walletzky-ns
 spec:
   replicas: 1
   selector:
@@ -155,7 +161,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: autogenbook-ui
-  namespace: autogenbook
+  namespace: walletzky-ns
 spec:
   selector:
     app: autogenbook
@@ -176,7 +182,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: autogenbook-ui
-  namespace: autogenbook
+  namespace: walletzky-ns
   annotations:
     # e-INFRA typicky automaticky vystaví TLS certifikát
     cert-manager.io/cluster-issuer: letsencrypt
@@ -215,9 +221,9 @@ Pokud TLS nechceš řešit, vynech blok `tls` — e-INFRA ingress může nasadit
 Pokud raději `kubectl`:
 
 ```bash
-kubectl apply -n autogenbook -f deploy/einfra.yaml
-kubectl -n autogenbook get pods,svc,ing,pvc
-kubectl -n autogenbook logs deploy/autogenbook-ui
+kubectl apply -n walletzky-ns -f deploy/einfra.yaml
+kubectl -n walletzky-ns get pods,svc,ing,pvc
+kubectl -n walletzky-ns logs deploy/autogenbook-ui
 ```
 
 ---
@@ -235,11 +241,16 @@ kubectl -n autogenbook logs deploy/autogenbook-ui
 
 ## 5. Bezpečnostní poznámky (před zveřejněním)
 
-- Aktuální UI **nemá žádné přihlašování** — je to MVP. Na e-INFRA přístupném
-  z internetu to nechávej jen za **restrikcí IP / Ingress basic auth**,
-  nebo doplň autentizaci (např. Keycloak/OIDC z e-INFRA), než to vystavíš veřejně.
-- Klíč k LLM je v **Secret** (ne v image ani v kódu). DB klíč v image NIKDY.
+- UI má **jednoduchou autentizaci sdíleným heslem**: pokud je v Seed‑u nastaven
+  `AUTOGENBOOK_UI_PASSWORD`, před vstupem se objeví přihlašovací stránka
+  (session cookie na 12 h, kdo zná heslo, projde; jinak nic nevidí).
+  Heslo drž v **Secret** (výše), nikde jinde.
+- **Přes HTTPS vzdý** (Ingress s TLS) — session cookie je `HttpOnly` + `SameSite=Lax`
+  a s `secure` (nastaví se automaticky, když je schéma `https`).
+- Klíč k LLM je v **Secret** (ne v image ani v kódu).
 - PVC zálohuj (export projektu = JSON ve `projects/<id>/`).
+- Pro ještě silnější ochranu (než „jen heslo") můžeš později přidat IP restrikci
+  na Ingressu nebo OIDC/Keycloak.
 
 ---
 

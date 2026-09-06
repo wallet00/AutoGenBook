@@ -122,6 +122,10 @@ const app = document.getElementById("app");
 /* ── helpers ──────────────────────────────────────────────────── */
 async function api(url, opts) {
   const r = await fetch(url, opts);
+  if (r.status === 401) {
+    window.location.href = "/login";
+    throw new Error("unauthorized");
+  }
   if (!r.ok) {
     let msg = r.statusText;
     try { msg = (await r.json()).detail || msg; } catch (e) {}
@@ -200,6 +204,8 @@ async function loadConfig() {
       el.textContent = (c.base_url || T("not_set")) + " · " + (c.model || "");
       el.title = T("provider") + ": " + (c.base_url || "-") + "\nmodel: " + c.model;
     }
+    const lo = document.getElementById("logout-btn");
+    if (lo) lo.style.display = c.auth ? "" : "none";
   } catch (e) {}
 }
 
