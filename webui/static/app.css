@@ -76,6 +76,24 @@ h3 { font-size: 15px; margin: 0 0 10px; }
 .badge.error { background: #ffe3e3; color: var(--err); }
 .badge.cancelled { background: #fff3bf; color: #e8590c; }
 @keyframes pulse { 50% { opacity: .55; } }
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: trspin .7s linear infinite;
+  vertical-align: -2px;
+  margin-right: 7px;
+}
+@keyframes trspin { to { transform: rotate(360deg); } }
+.tr-status {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--muted); font-size: 13px;
+  margin-top: 12px; padding: 8px 10px;
+  background: var(--bg2, rgba(128,128,128,.08));
+  border: 1px solid var(--border); border-radius: 6px;
+}
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }

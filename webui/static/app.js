@@ -116,6 +116,7 @@ const I18N = {
     translate_hint: "Rychlý překlad stávajícího textu (bez generování). Zachová se Markdown/LaTeX struktura, citace i vzorce. Původní verze se archivuje a uzel se zamkne proti přepisu.",
     translate_go: "Přeložit",
     translate_ok: "Text přeložen a uložen",
+    translate_busy: "Probíhá překlad… může to chvíli trvat",
     translate_lang_req: "Zadej cílový jazyk",
     running_from: "Běh probíhá — live výpis",
   },
@@ -232,6 +233,7 @@ const I18N = {
     translate_hint: "Fast translation of the existing text (no generation). Markdown/LaTeX structure, citations and formulas are preserved. The original is archived and the node is locked against overwrite.",
     translate_go: "Translate",
     translate_ok: "Text translated and saved",
+    translate_busy: "Translating… this may take a moment",
     translate_lang_req: "Enter a target language",
     running_from: "Run in progress — live log",
   },
@@ -888,9 +890,10 @@ function openTranslate(nid, title) {
           <input type="text" id="tr-lang" value="${esc(defaultLang)}" placeholder="Čeština" /></div>
         <p class="muted">${T("translate_hint")}</p>
         <div class="row" style="margin-top:12px;gap:8px">
-          <button class="btn primary" onclick="doTranslate('${esc(nid)}')">🌐 ${T("translate_go")}</button>
+          <button class="btn primary" id="tr-go" onclick="doTranslate('${esc(nid)}')">🌐 ${T("translate_go")}</button>
           <button class="btn" onclick="closeModal()">${T("cancel_modal")}</button>
         </div>
+        <div class="tr-status" id="tr-status" style="display:none"><span class="spinner"></span><span id="tr-status-txt">${T("translate_busy")}</span></div>
       </div>
     </div>`;
   modal.style.display = "block";
@@ -899,6 +902,11 @@ async function doTranslate(nid) {
   const langEl = document.getElementById("tr-lang");
   const lang = langEl ? langEl.value.trim() : "";
   if (!lang) { toast(T("translate_lang_req")); return; }
+  const go = document.getElementById("tr-go");
+  const status = document.getElementById("tr-status");
+  const goText = go ? go.textContent : "";
+  if (go) { go.disabled = true; }
+  if (status) status.style.display = "flex";
   const model = (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "";
   try {
     await apiJSON(`/api/projects/${window._pid}/translate-node`, "POST", { node_id: nid, target_lang: lang, model });
@@ -906,7 +914,11 @@ async function doTranslate(nid) {
     toast(T("translate_ok"));
     await refreshTreePanel();
     if (document.getElementById("preview")) previewNode(nid, nid);
-  } catch (e) { toast(e.message); }
+  } catch (e) {
+    toast(e.message);
+    if (go) { go.disabled = false; go.textContent = goText; }
+    if (status) status.style.display = "none";
+  }
 }
 async function runSingleNode(nid, title) {
   const pid = window._pid;
