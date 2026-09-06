@@ -106,6 +106,17 @@ const I18N = {
     history_snapshot: "Uložit verzi",
     snapshot_ok: "Verze uložena:",
     restored: "Verze obnovena (uzel je nyní chráněný proti přepisu)",
+    gen_intro: "Vygenerovat pouze úvod/přehled kapitoly",
+    branch_btn: "Vygenerovat celou tuto větev (rekurzivně incl. podkapitol)",
+    run_branch: "Větev",
+    branch_confirm: "Rekurzivně vygenerovat/přegenerovat tento uzel I všechny dceřiné podkapitoly?",
+    translate_btn: "Přeložit text uzlu",
+    translate_title: "Přeložit text uzlu",
+    translate_lang: "Cílový jazyk",
+    translate_hint: "Rychlý překlad stávajícího textu (bez generování). Zachová se Markdown/LaTeX struktura, citace i vzorce. Původní verze se archivuje a uzel se zamkne proti přepisu.",
+    translate_go: "Přeložit",
+    translate_ok: "Text přeložen a uložen",
+    translate_lang_req: "Zadej cílový jazyk",
     running_from: "Běh probíhá — live výpis",
   },
   en: {
@@ -211,6 +222,17 @@ const I18N = {
     history_snapshot: "Save version",
     snapshot_ok: "Version saved:",
     restored: "Version restored (node is now protected against overwrite)",
+    gen_intro: "Generate only the chapter intro/overview",
+    branch_btn: "Generate this whole branch (recursively incl. subchapters)",
+    run_branch: "Branch",
+    branch_confirm: "Recursively (re)generate this node AND all its descendant subchapters?",
+    translate_btn: "Translate node text",
+    translate_title: "Translate node text",
+    translate_lang: "Target language",
+    translate_hint: "Fast translation of the existing text (no generation). Markdown/LaTeX structure, citations and formulas are preserved. The original is archived and the node is locked against overwrite.",
+    translate_go: "Translate",
+    translate_ok: "Text translated and saved",
+    translate_lang_req: "Enter a target language",
     running_from: "Run in progress — live log",
   },
 };
@@ -737,7 +759,12 @@ function renderTree(items, depth) {
     const size = n.exists ? `<span class="muted">(${sizeH(n.size)})</span>` : "";
     const status = `${n.locked ? "🔒 " : (n.manual ? "✏️ " : "")}${n.exists ? "🟢" : "⚪"}`;
     const lockBtn = `<button class="btn tiny lock" title="${n.locked ? T("lock_unlock") : T("lock_lock")}" onclick="toggleLock('${esc(n.id)}',${!!n.locked})">${n.locked ? "🔒" : "🔓"}</button>`;
-    const histBtn = (n.leaf && n.exists) ? `<button class="btn tiny" title="${T("history_btn")}" onclick="openHistory('${esc(n.id)}','${esc(n.title)}')">📜</button>` : "";
+    const histBtn = (n.exists) ? `<button class="btn tiny" title="${T("history_btn")}" onclick="openHistory('${esc(n.id)}','${esc(n.title)}')">📜</button>` : "";
+    const transBtn = n.exists ? `<button class="btn tiny" title="${T("translate_btn")}" onclick="openTranslate('${esc(n.id)}','${esc(n.title)}')">🌐</button>` : "";
+    const genBtn = n.leaf
+      ? `<button class="btn tiny" title="${T("gen_node")}" onclick="runSingleNode('${esc(n.id)}','${esc(n.title)}')">⚡ ${T("gen_node")}</button>`
+      : `<button class="btn tiny" title="${T("gen_intro")}" onclick="runSingleNode('${esc(n.id)}','${esc(n.title)}')">⚡</button>`;
+    const branchBtn = !n.leaf ? `<button class="btn tiny" title="${T("branch_btn")}" onclick="runBranch('${esc(n.id)}','${esc(n.title)}')">🔄 ${T("run_branch")}</button>` : "";
     return `
       <div class="tnode">
         <div class="trow" style="--depth:${depth}">
@@ -748,8 +775,10 @@ function renderTree(items, depth) {
             ${status} ${esc(n.title || n.id)}
           </span>
           ${size}
+          ${genBtn}
+          ${branchBtn}
+          ${transBtn}
           ${histBtn}
-          ${n.leaf ? `<button class="btn tiny" onclick="runSingleNode('${esc(n.id)}','${esc(n.title)}')">⚡ ${T("gen_node")}</button>` : ""}
           ${lockBtn}
         </div>
         ${hasKids ? `<div class="tkids ${open ? "" : "hidden"}">${renderTree(n.children, depth + 1)}</div>` : ""}
@@ -831,6 +860,52 @@ async function snapshotNode(nid) {
   try {
     const r = await apiJSON(`/api/projects/${window._pid}/output/history/snapshot`, "POST", { section: nid });
     toast(T("snapshot_ok") + " " + r.name);
+  } catch (e) { toast(e.message); }
+}
+async function runBranch(nid, title) {
+  if (!confirm(T("branch_confirm") + "\n\n" + (title || nid))) return;
+  const pid = window._pid;
+  const cfg = {
+    mode: "branch", node_id: nid,
+    model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
+  };
+  try {
+    await apiJSON(`/api/projects/${pid}/run`, "POST", cfg);
+    setRunRunning();
+    await renderProjectTabs("run");
+  } catch (e) { toast(e.message); }
+}
+function openTranslate(nid, title) {
+  const a = (window._proj && window._proj.analysis) || {};
+  const defaultLang = (a.language && String(a.language).trim()) ? String(a.language).trim() : "Čeština";
+  const modal = document.getElementById("modal-root");
+  if (!modal) return;
+  modal.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>🌐 ${T("translate_title")} — ${esc(title || nid)} <span class="muted">(${esc(nid)})</span></h3>
+        <div class="field"><label>${T("translate_lang")}</label>
+          <input type="text" id="tr-lang" value="${esc(defaultLang)}" placeholder="Čeština" /></div>
+        <p class="muted">${T("translate_hint")}</p>
+        <div class="row" style="margin-top:12px;gap:8px">
+          <button class="btn primary" onclick="doTranslate('${esc(nid)}')">🌐 ${T("translate_go")}</button>
+          <button class="btn" onclick="closeModal()">${T("cancel_modal")}</button>
+        </div>
+      </div>
+    </div>`;
+  modal.style.display = "block";
+}
+async function doTranslate(nid) {
+  const langEl = document.getElementById("tr-lang");
+  const lang = langEl ? langEl.value.trim() : "";
+  if (!lang) { toast(T("translate_lang_req")); return; }
+  const model = (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "";
+  try {
+    await apiJSON(`/api/projects/${window._pid}/translate-node`, "POST", { node_id: nid, target_lang: lang, model });
+    closeModal();
+    toast(T("translate_ok"));
+    await refreshTreePanel();
+    if (document.getElementById("preview")) previewNode(nid, nid);
   } catch (e) { toast(e.message); }
 }
 async function runSingleNode(nid, title) {
@@ -1022,6 +1097,9 @@ async function init() {
   window.openHistory = openHistory;
   window.restoreHistory = restoreHistory;
   window.snapshotNode = snapshotNode;
+  window.runBranch = runBranch;
+  window.openTranslate = openTranslate;
+  window.doTranslate = doTranslate;
   window.renderPrompts = renderPrompts;
   window.saveProjectPrompts = saveProjectPrompts;
   window.saveGlobalPrompts = saveGlobalPrompts;

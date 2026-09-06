@@ -545,6 +545,7 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
             save_graph_json(g, progress_path)
 
         single_node = str(getattr(args, "single_node", "") or "").strip() or None
+        branch_root = str(getattr(args, "branch_root", "") or "").strip() or None
         # Per-node konfigurace z UI (custom prompt, prioritní KB soubory, stávající text)
         _node_params = _load_json_env("AUTOGENBOOK_NODE_PARAMS") or {}
         node_config: Dict[str, Any] = _node_params if isinstance(_node_params, dict) else {}
@@ -585,10 +586,13 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
             resume=bool(args.resume),
             only_key=single_node,
             node_config=node_config,
+            branch_root=branch_root,
         )
         if single_node:
             print(f"[SINGLE_NODE] Vygenerována pouze sekce {single_node}.")
             return 0
+        if branch_root:
+            print(f"[BRANCH] Vygenerována větev {branch_root} včetně podkapitol.")
         print(f"[GEN] Trvani: {_format_duration(time.perf_counter() - t0)}")
 
         outputs = []

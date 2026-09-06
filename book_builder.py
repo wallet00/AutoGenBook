@@ -385,6 +385,19 @@ def build_graph_from_book_json(book_json: Dict[str, Any]) -> nx.DiGraph:
     return g
 
 
+def _branch_keys_in_order(g: nx.DiGraph, root: str) -> List[str]:
+    """Vrátí root + všechny jeho potomky v pořadí (rodič před dítětem)."""
+    out: List[str] = []
+
+    def visit(n: str) -> None:
+        out.append(n)
+        for ch in _node_children_sorted(g, n):
+            visit(ch)
+
+    visit(root)
+    return out
+
+
 def _node_children_sorted(g: nx.DiGraph, node: str) -> List[str]:
     children = list(g.successors(node))
     return sort_node_keys(children)
@@ -607,6 +620,7 @@ def generate_contents(
     resume: bool = False,
     only_key: Optional[str] = None,
     node_config: Optional[Dict[str, Any]] = None,
+    branch_root: Optional[str] = None,
 ) -> None:
     """
     Generate section content for each leaf node and write to files.
@@ -661,7 +675,29 @@ def generate_contents(
     memory_path = out_dir / "context_memory.json"
     context_memory = ContextMemory.load(memory_path)
 
-    nodes = leaf_nodes_in_order(g)
+    # Výběr cílů generování:
+    #  - single: pouze jediný uzel (list NEBO rodič → úvod/overview),
+    #  - branch: uzel + všechny jeho dceřiné podkapitoly (rekurzivně),
+    #  - bulk:   všechny listy (celá kniha).
+    if only_key is not None:
+        if only_key not in g.nodes:
+            print(f"[GEN] Cílový uzel {only_key} není v grafu — přeskočeno.")
+            if progress_path is not None:
+                save_graph_json(g, progress_path)
+            return
+        nodes = [only_key]
+        target_mode = "single"
+    elif branch_root is not None:
+        if branch_root not in g.nodes:
+            print(f"[GEN] Uzel větve {branch_root} není v grafu — přeskočeno.")
+            if progress_path is not None:
+                save_graph_json(g, progress_path)
+            return
+        nodes = _branch_keys_in_order(g, branch_root)
+        target_mode = "branch"
+    else:
+        nodes = leaf_nodes_in_order(g)
+        target_mode = "bulk"
     total = len(nodes)
     completed = 0
     generated = 0
@@ -685,19 +721,17 @@ def generate_contents(
         node = g.nodes[node_key]
         completed += 1
 
-        # Změnový management: při hromadném běhu se zamknuté / ručně upravené uzly
-        # přeskočí, aby se zachoval jejich aktuální obsah.
-        if only_key is None and (node.get("locked") or node.get("manual_override")):
+        # Změnový management: hromadné/branch běhy přeskočí zamčené / ručně upravené uzly,
+        # aby se zachoval jejich aktuální obsah. (single režim = výslovný uživatelský záměr.)
+        if target_mode != "single" and (node.get("locked") or node.get("manual_override")):
             print(f"[GEN] {completed}/{total} SKIP (locked/manual) '{node.get('title','')}'")
             if progress_path is not None:
                 save_graph_json(g, progress_path)
             continue
 
-        # single-node režim: zpracuj pouze zvolený uzel (přepis vynutí i u existujícího souboru)
-        if only_key is not None:
-            if node_key != only_key:
-                continue
-            resume = False  # cílovou sekci vždy (pře)generuj
+        # single/branch režim: cílové uzly vždy (pře)generuj
+        if target_mode in ("single", "branch"):
+            resume = False  # cílové sekce vždy (pře)generuj
 
         existing_path = node.get("content_file_path")
         if resume:
@@ -734,7 +768,7 @@ def generate_contents(
 
         # Per-node konfigurace (single-node z UI): vlastní prompt, prioritní zdroje,
         # případně použití stávajícího textu jako základu (sekci se přepíše/vylepší).
-        nc: Dict[str, Any] = (node_config or {}) if only_key else {}
+        nc: Dict[str, Any] = (node_config or {}) if target_mode == "single" else {}
         node_requirements = additional_requirements
         custom_prompt = str(nc.get("custom_prompt") or "").strip()
         if custom_prompt:
@@ -1144,7 +1178,23 @@ def build_latex_document(g: nx.DiGraph, out_dir: Path, kb: Optional[KnowledgeBas
         Heading = heading_class_for_depth(depth)
 
         with parent_container.create(Heading(_sanitize_heading_text(title), label=False)):
-            if summary and children:
+            # Rodičovský uzel může mít vlastní vygenerovaný úvod/overview; jinak summary.
+            path = node.get("content_file_path")
+            body_src = None
+            if path and Path(path).is_file():
+                try:
+                    raw = Path(path).read_bytes()
+                    body_src = _decode_text_bytes(raw)
+                    if Path(path).suffix.lower() == ".md":
+                        body_src = _convert_markdown_to_latex(body_src)
+                    body_src, _ = _sanitize_section_tex(body_src)
+                except Exception:
+                    body_src = None
+            if body_src:
+                parent_container.append(NoEscape("\n\n"))
+                parent_container.append(NoEscape(body_src))
+                parent_container.append(NoEscape("\n\n"))
+            elif summary and children:
                 safe_summary = summary.replace("\\\\", "\\")
                 safe_summary, _ = _sanitize_section_tex(safe_summary)
                 parent_container.append(NoEscape(safe_summary))
@@ -4568,7 +4618,19 @@ def build_markdown_document(g: nx.DiGraph, out_dir: Path) -> Path:
 
         children = _node_children_sorted(g, node_key)
         summary = str(node.get("summary", "") or "").strip()
-        if summary and children:
+        path = node.get("content_file_path")
+        body = ""
+        if path:
+            p = Path(path)
+            if p.is_file():
+                try:
+                    body = _decode_text_bytes(p.read_bytes()).strip()
+                except Exception:
+                    body = ""
+        if body:
+            lines.append(body)
+            lines.append("")
+        elif summary and children:
             lines.append(summary)
             lines.append("")
 
@@ -4577,14 +4639,15 @@ def build_markdown_document(g: nx.DiGraph, out_dir: Path) -> Path:
                 add_node(ch)
             return
 
-        path = node.get("content_file_path")
-        if path:
-            p = Path(path)
-            try:
-                raw = p.read_bytes()
-            except FileNotFoundError:
-                return
-            body = _decode_text_bytes(raw).strip()
+        if not body:
+            path = node.get("content_file_path")
+            if path:
+                p = Path(path)
+                try:
+                    raw = p.read_bytes()
+                except FileNotFoundError:
+                    return
+                body = _decode_text_bytes(raw).strip()
             if body:
                 lines.append(body)
                 lines.append("")

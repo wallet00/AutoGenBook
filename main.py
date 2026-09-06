@@ -324,6 +324,12 @@ def parse_args(argv=None):
         metavar="KEY",
         help="Vygenerovat/přepsat pouze jednu sekci dle node key (např. 1-2-1) z načtené struktury.",
     )
+    p.add_argument(
+        "--branch-root",
+        default=None,
+        metavar="KEY",
+        help="Rekurzivně vygenerovat/přegenerovat uzel KEY (např. 1-2) I všechny jeho dceřiné podkapitoly.",
+    )
 
     # Output format toggles
     p.add_argument("--no-tex", action="store_true", help="Negenerovat .tex výstup.")

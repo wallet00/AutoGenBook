@@ -394,7 +394,7 @@ def _build_argv(pid: str, cfg: dict) -> list[str]:
     kb = p / "kb"
     spec = p / "spec.txt"
     mode = (cfg.get("mode") or "book") or "book"
-    cli_mode = "book" if mode in ("outline_only", "single_node") else mode
+    cli_mode = "book" if mode in ("outline_only", "single_node", "branch") else mode
 
     argv = [
         "python",
@@ -416,6 +416,16 @@ def _build_argv(pid: str, cfg: dict) -> list[str]:
         if not node_key:
             raise RunError("single_node vyžaduje node_id")
         argv += ["--single-node", node_key, "--resume", "--no-md", "--no-tex", "--no-pdf"]
+        if cfg.get("enable_web_rag"):
+            argv += ["--enable-web-rag"]
+        return argv
+
+    if mode == "branch":
+        bkey = str(cfg.get("node_id") or "").strip().replace(".", "-")
+        if not bkey:
+            raise RunError("branch vyžaduje node_id")
+        # Necháme sestavit .md (bez tex/pdf), aby se promítly změny do finálního dokumentu.
+        argv += ["--branch-root", bkey, "--resume", "--no-tex", "--no-pdf"]
         if cfg.get("enable_web_rag"):
             argv += ["--enable-web-rag"]
         return argv
@@ -718,6 +728,57 @@ def snapshot_history(pid: str, payload: dict):
         raise HTTPException(404, "Sekce zatím není vygenerovaná")
     name = _history_archive(base, section, target.read_text(encoding="utf-8", errors="replace"))
     return {"ok": True, "name": name}
+
+
+@app.post("/api/projects/{pid}/translate-node")
+def translate_node(pid: str, payload: dict):
+    """Rychlý překlad stávajícího textu uzlu (bez spouštění celé RAG pipeline)."""
+    _read_meta(pid)
+    node_id = str(payload.get("node_id") or "").strip().replace(".", "-")
+    path = str(payload.get("path") or "").strip()
+    target_lang = str(payload.get("target_lang") or "").strip() or "Čeština"
+    model = str(payload.get("model") or "").strip()
+    base = (project_paths(pid) / "output").resolve()
+    if node_id:
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", node_id)
+        target = (base / "sections" / f"{safe}.md").resolve()
+        path = f"sections/{safe}.md"
+    elif path:
+        target = (base / path).resolve()
+    else:
+        raise HTTPException(400, "Chybí node_id nebo path")
+    if not str(target).startswith(str(base)) or not target.is_file():
+        raise HTTPException(404, "Soubor neexistuje")
+    text = target.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        raise HTTPException(400, "Soubor je prázdný")
+    llm = OpenRouterLLM()
+    sys = (
+        "Jsi profesionální akademický překladatel. Přelož následující text do jazyka "
+        f"{target_lang}. Zachovej veškerou strukturaci v Markdownu, LaTeXové citace, vzorce a "
+        "specifikace. Zachovej klíčové anglické odborné termíny v závorce tam, kde je to vhodné. "
+        "Vrať POUZE přeložený text, bez úvodních komentářů nebo shrnutí."
+    )
+    try:
+        translated = (llm.chat(
+            [{"role": "system", "content": sys}, {"role": "user", "content": text}],
+            model=model or None,
+        ) or "").strip()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Překlad selhal: {e}")
+    if not translated:
+        raise HTTPException(502, "Překlad vrátil prázdný text")
+    section_key = node_id or (Path(path).stem if path else "")
+    if section_key:
+        _history_archive(base, section_key, text)
+    target.write_text(translated, encoding="utf-8")
+    # přeložený obsah = ručně upravený → chraň proti hromadnému přepisu
+    data = _load_graph_data(pid)
+    if data and section_key and section_key in data.get("nodes", {}):
+        data["nodes"][section_key]["manual_override"] = True
+        data["nodes"][section_key]["locked"] = True
+        _save_graph_data(pid, data)
+    return {"ok": True, "content": translated, "path": path}
 
 
 # ── Prompt Management (editor promptů) ────────────────────────────

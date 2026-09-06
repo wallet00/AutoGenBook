@@ -65,7 +65,7 @@ UI podporuje dvoufázový tok + generování jednotlivých uzlů:
 3. **Strom + single node** — `GET /api/projects/<id>/structure` vrací hierarchický strom
    z `structure_graph.json` (fallback `book_structure.json`) včetně stavu sekcí
    (`exists`/`size`/`mtime` z `output/sections/<key>.md`). UI renderuje kolapsovatelný strom;
-   list uzly mají tlačítko "⚡ Generovat tento uzel" → `mode: "single_node"` + `node_id`,
+   uzly mají tlačítko "⚡ Generovat tento uzel" (funguje i pro rodičovské uzly → úvod/overview) → `mode: "single_node"` + `node_id`,
    který spustí `main.py --single-node <key> --resume --no-md --no-tex --no-pdf`
    (načte stávající strukturu a přepíše jen jednu sekci; ve `book_builder.generate_contents`
    parametr `only_key`). Náhled sekce + "Zkopírovat jako podklad pro NotebookLM".
@@ -113,13 +113,27 @@ a „💾 Uložit verzi“ (ruční checkpoint).
 Nová rozhraní: `PUT /structure/lock`, `GET /output/history`, `POST /output/history/restore`,
 `POST /output/history/snapshot`.
 
+**4. Generování rodičovského uzlu / celé větve** — tlačítko ⚡ nyní funguje i na rodičovských
+uzlech (vygeneruje „úvod/přehled kapitoly“ do `sections/<rodič>.md`). Rodičovské uzly mají navíc
+tlačítko **🔄 Větev** (`mode: "branch"`), které rekurzivně (pře)generuje uzel I všechny jeho
+dceřiné podkapitoly. Při branch běhu se respektují zámky (❗ zamčené uzly se přeskočí). Výsledek
+rodičovského obsahu se promítne i do finálního .md dokumentu (rodič vykreslí svůj obsah před
+podkapitolami).
+
+**5. Rychlý překlad uzlu 🌐** — tlačítko na uzlu, který už má obsah: pošle stávající text přímo
+LLM na překlad (obchází RAG pipeline), zkopíruje do `sections/<uzel>.md`, archívuje předchozí verzi
+a uzel označí jako `manual_override` + `locked`. Cílový jazyk se předvyplní z parametrů kurzu
+(`analysis.language`).
+
 ### Nové API
 
 - `POST /api/projects/<id>/analyze-spec`
 - `PUT /api/projects/<id>/analysis`
 - `GET /api/projects/<id>/structure`
+- `POST /api/projects/<id>/translate-node`  (překlad uzlu 🌐)
 
 ### Nové CLI přepínače
 
 - `--outline-only`
 - `--single-node <key>` (node key např. `1-2-1`, tečka se normalizuje na pomlčku)
+- `--branch-root <key>` (rekurzivně vygenerovat uzel i všechny jeho dceřiné podkapitoly)
