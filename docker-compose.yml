@@ -1,16 +1,37 @@
 # AutoGenBook — docker-compose
-# Usage (Windows):
-#   docker compose build
-#   docker compose run --rm autogenbook --help
-#   docker compose run --rm autogenbook --mode book --input input/book/book_input.txt --out-dir output/out_book
+# Pozn.: spouští webové UI (služba `ui`) i klasické CLI (služba `cli`).
+#
+# Web UI:
+#   docker compose up -d ui
+#   otevři http://localhost:8080
+#
+# CLI:
+#   docker compose run --rm cli --help
+#   docker compose run --rm cli --mode book --input input/book/book_input.txt --out-dir output/out_book
+#
+# Sdílené složky (projects/, input/, output/) žijí na hostu a přežijí restart.
 services:
-  autogenbook:
+  ui:
     build: .
     image: autogenbook:latest
-    # Bind-mount input/output + .env so data lives on the host and survives re-runs.
+    entrypoint: []
+    command: ["python", "-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./projects:/app/projects
+      - ./input:/app/input
+      - ./output:/app/output
+    env_file:
+      - .env
+
+  cli:
+    build: .
+    image: autogenbook:latest
+    profiles: ["cli"]
     volumes:
       - ./input:/app/input
       - ./output:/app/output
-    # Pass API keys / overrides from the host .env file.
+      - ./projects:/app/projects
     env_file:
       - .env
