@@ -95,6 +95,24 @@ class OpenRouterLLM:
 
     def __init__(self, config: Optional[LLMConfig] = None) -> None:
         self.config = config or LLMConfig()
+
+        # Allow overriding the default model via AUTOGENBOOK_LLM_MODEL (e.g. e-INFRA,
+        # local servers, or non-OpenRouter OpenAI-compatible providers). Only applies
+        # when the caller did not pass an explicit LLMConfig.
+        env_model = os.environ.get("AUTOGENBOOK_LLM_MODEL", "").strip()
+        if env_model and not config:
+            self.config = LLMConfig(
+                model=env_model,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+                input_cost_per_million=self.config.input_cost_per_million,
+                output_cost_per_million=self.config.output_cost_per_million,
+                base_url=self.config.base_url,
+                api_key=self.config.api_key,
+            )
+
+        # AUTOGENBOOK_FORCE_MINI_MODEL has the highest priority and wins over any
+        # AUTOGENBOOK_LLM_MODEL override.
         if os.environ.get("AUTOGENBOOK_FORCE_MINI_MODEL", "").strip().lower() in {"1", "true", "yes", "on"}:
             self.config = LLMConfig(
                 model="openai/gpt-5-mini",

@@ -44,7 +44,8 @@ See `docs/API_REFERENCE.md` for the full CLI reference. (`docs/API_REFERENCE.md`
 | --- | --- | --- | --- |
 | `AUTOGENBOOK_LLM_BASE_URL` | No | Override OpenAI-compatible base URL for all LLM calls. | `openrouter_llm.py:OpenRouterLLM.__init__` |
 | `AUTOGENBOOK_LLM_API_KEY` | No | Optional API key override for non-OpenRouter endpoints. | `openrouter_llm.py:OpenRouterLLM.__init__` |
-| `AUTOGENBOOK_FORCE_MINI_MODEL` | No | Forces `openai/gpt-5-mini` for all runs. | `openrouter_llm.py:OpenRouterLLM.__init__` |
+| `AUTOGENBOOK_LLM_MODEL` | No | Override the default model for all runs (e.g. `qwen3.5` on e-INFRA). Ignored when a caller passes an explicit `LLMConfig`. | `openrouter_llm.py:OpenRouterLLM.__init__` |
+| `AUTOGENBOOK_FORCE_MINI_MODEL` | No | Forces `openai/gpt-5-mini` for all runs (highest priority). | `openrouter_llm.py:OpenRouterLLM.__init__` |
 | `AUTOGENBOOK_FAIL_FAST_SCHEMA` | No | Fail immediately on schema validation errors. | `main.py:main`, `autogenbook/agents/base.py:BaseAgent._validate_with_repair` |
 | `AUTOGENBOOK_NONINTERACTIVE` | No | Skips interactive prompts in book/proposal flows. | `autogenbook/pipelines/book_pipeline.py:_ask_choice`, `autogenbook/pipelines/proposal_pipeline.py:_is_noninteractive` |
 | `AUTOGENBOOK_ASSUME_YES` | No | Auto-accepts yes/no prompts in book flow. | `autogenbook/pipelines/book_pipeline.py:_ask_yes_no` |
