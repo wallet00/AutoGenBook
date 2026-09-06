@@ -88,6 +88,8 @@ h3 { font-size: 15px; margin: 0 0 10px; }
 /* Forms */
 .field { margin-bottom: 14px; }
 .field label { display: block; font-weight: 600; margin-bottom: 6px; }
+.params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+@media (max-width: 700px) { .params-grid { grid-template-columns: 1fr; } }
 textarea, input[type=text] {
   width: 100%; border: 1px solid var(--border); border-radius: 8px;
   padding: 10px; font-size: 14px; font-family: inherit;

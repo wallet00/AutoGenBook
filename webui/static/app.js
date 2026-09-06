@@ -312,7 +312,7 @@ async function renderProjectTabs(active = "spec") {
   const body = document.getElementById("tab-body");
   body.innerHTML = await viewFn();
   if (active === "kb") setupKb();
-  if (active === "spec" && (window._proj.analysis || {}).suggested_title) renderParamsForm();
+  if (active === "spec") renderParamsForm();
 }
 function tab(name) { renderProjectTabs(name); }
 
@@ -323,7 +323,6 @@ const viewMap = {
       <textarea id="spec-editor" rows="18">${esc(window._proj.spec)}</textarea>
       <div class="row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
         <button class="btn primary" onclick="saveSpec()">${T("save")}</button>
-        <button class="btn accent" onclick="analyzeSpec()">✨ ${T("analyze_btn")}</button>
       </div>
       <div id="params-form" style="display:none;margin-top:18px"></div>
     </div>`,
@@ -386,23 +385,29 @@ function renderParamsForm() {
   if (!box) return;
   const a = (window._proj && window._proj.analysis) || {};
   const f = (k, d) => esc((a[k] != null && a[k] !== "") ? a[k] : d);
+  const depth = Number(a.recommended_depth);
   box.style.display = "block";
   box.innerHTML = `
     <h3>✨ ${T("params_title")}</h3>
     <p class="muted">${T("params_note")}</p>
-    <div class="field"><label>${T("param_title")}</label>
-      <input type="text" id="an-title" value="${f("suggested_title", "")}" /></div>
-    <div class="field"><label>${T("param_audience")}</label>
-      <input type="text" id="an-audience" value="${f("target_audience", "")}" /></div>
-    <div class="field"><label>${T("param_tone")}</label>
-      <input type="text" id="an-tone" value="${f("tone_of_voice", "")}" /></div>
-    <div class="field"><label>${T("param_purpose")}</label>
-      <input type="text" id="an-purpose" value="${f("output_purpose", "")}" /></div>
-    <div class="field"><label>${T("param_depth")}</label>
-      <select id="an-depth" class="btn">
-        ${[2,3,4,5].map((d) => `<option value="${d}" ${Number(a.recommended_depth)===d?"selected":""}>${d}</option>`).join("")}
-      </select></div>
-    <div style="margin-top:12px"><button class="btn primary" onclick="saveParams()">${T("save_params")}</button></div>`;
+    <div class="params-grid">
+      <div class="field"><label>${T("param_title")}</label>
+        <input type="text" id="an-title" value="${f("suggested_title", "")}" placeholder="…" /></div>
+      <div class="field"><label>${T("param_depth")}</label>
+        <select id="an-depth" class="btn">
+          ${[2,3,4,5].map((d) => `<option value="${d}" ${(!depth || depth===d) && d===3 ? "selected" : depth===d ? "selected" : ""}>${d}</option>`).join("")}
+        </select></div>
+      <div class="field"><label>${T("param_audience")}</label>
+        <input type="text" id="an-audience" value="${f("target_audience", "")}" placeholder="${esc("Studenti informatiky a Service Designu na FI MUNI")}" /></div>
+      <div class="field"><label>${T("param_tone")}</label>
+        <input type="text" id="an-tone" value="${f("tone_of_voice", "")}" placeholder="${esc("Akademický výkladový text s IT/SaaS příklady")}" /></div>
+      <div class="field"><label>${T("param_purpose")}</label>
+        <input type="text" id="an-purpose" value="${f("output_purpose", "")}" placeholder="${esc("Textbook / Podklad pro NotebookLM")}" /></div>
+    </div>
+    <div style="margin-top:10px" class="row">
+      <button class="btn primary" onclick="saveParams()">${T("save_params")}</button>
+      <button class="btn accent" onclick="analyzeSpec()">✨ ${T("analyze_btn")}</button>
+    </div>`;
 }
 async function saveParams() {
   const payload = {
