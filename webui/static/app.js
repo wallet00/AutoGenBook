@@ -373,7 +373,7 @@ async function startRun() {
   window._model = cfg.model;
   try {
     await apiJSON(`/api/projects/${pid}/run`, "POST", cfg);
-    renderProjectTabs("run");
+    await renderProjectTabs("run");   // počkat, než se vykreslí záložka (async)
     startEvents(pid);
   } catch (e) { toast(e.message); }
 }
