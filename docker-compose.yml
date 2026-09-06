@@ -1,0 +1,16 @@
+# AutoGenBook — docker-compose
+# Usage (Windows):
+#   docker compose build
+#   docker compose run --rm autogenbook --help
+#   docker compose run --rm autogenbook --mode book --input input/book/book_input.txt --out-dir output/out_book
+services:
+  autogenbook:
+    build: .
+    image: autogenbook:latest
+    # Bind-mount input/output + .env so data lives on the host and survives re-runs.
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+    # Pass API keys / overrides from the host .env file.
+    env_file:
+      - .env
