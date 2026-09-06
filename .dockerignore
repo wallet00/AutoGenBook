@@ -1,0 +1,15 @@
+# Zabrání natlačení tajemství a velkých dat do image.
+# Dockerfile dělá `COPY . .` — bez tohoto by se do image dostaly klíče z .env
+# a lokální data z projects/input/output.
+.git
+.env
+projects/
+input/
+output/
+tests/
+docs/
+installer/
+**/__pycache__/
+*.log
+*.pyc
+.DS_Store
