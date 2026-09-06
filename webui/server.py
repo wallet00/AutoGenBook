@@ -19,7 +19,16 @@ from .runner import RunError, runner
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_ROOT = REPO_ROOT / "projects"
-PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+try:
+    PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+    os.chmod(PROJECTS_ROOT, 0o777)  # best-effort: pomáhá, když je volume root zapisovatelný appuserem
+except PermissionError:
+    import sys as _sys
+    print(
+        "[WARN] Nemohu zapisovat do %s. Zkontrolujte vlastníka PVC/fsGroup "
+        "(ne-root uživatel musí mít právo zápisu)." % PROJECTS_ROOT,
+        file=_sys.stderr,
+    )
 
 UI_DIR = Path(__file__).parent
 app = FastAPI(title="AutoGenBook UI", version="0.1.0")
@@ -123,9 +132,17 @@ def _read_meta(pid: str) -> dict:
 
 def _write_meta(pid: str, meta: dict) -> None:
     project_paths(pid).mkdir(parents=True, exist_ok=True)
-    (project_paths(pid) / "project.json").write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    try:
+        (project_paths(pid) / "project.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except PermissionError as e:
+        raise HTTPException(
+            500,
+            "Nemohu uložit projekt (přístup odepřen, uid=%d). Soubory na PVC jsou nejspíš "
+            "vlastněné jiným uživatelem (dříve root). Opravte vlastnictví/PVC nebo použijte "
+            "storage s podporou fsGroup=2000." % (os.getuid() if hasattr(os, "getuid") else -1),
+        ) from e
 
 
 def _load_dotenv_for_config() -> dict:
