@@ -23,6 +23,7 @@ const I18N = {
     saved: "Uloženo",
     kb_hint: "Nahraj stávající materiály (PDF, DOCX, MD, TXT, PPTX…) — vytvoří znalostní bázi.",
     upload: "Nahrát soubor",
+    drop_hint: "nebo sem přetáhni soubory",
     no_files: "Žádné soubory. Přetáhni sem materiály.",
     refresh: "Obnovit",
     settings_hint: "Konfigurace běhu generování.",
@@ -73,6 +74,7 @@ const I18N = {
     saved: "Saved",
     kb_hint: "Upload existing materials (PDF, DOCX, MD, TXT, PPTX…) — becomes a knowledge base.",
     upload: "Upload file",
+    drop_hint: "or drop files here",
     no_files: "No files. Drop materials here.",
     refresh: "Refresh",
     settings_hint: "Generation run configuration.",
@@ -260,6 +262,7 @@ function renderProjectTabs(active = "spec") {
       ${["spec","kb","run","out"].map((t) => `<button class="tab ${t===active?"active":""}" onclick="tab('${t}')">${TL(t)}</button>`).join("")}
     </div>
     <div id="tab-body">${viewMap[active]()}</div>`;
+  if (active === "kb") setupKb();
 }
 function tab(name) { renderProjectTabs(name); }
 
@@ -273,8 +276,8 @@ const viewMap = {
   kb: () => `
     <div class="card">
       <p class="muted">${T("kb_hint")}</p>
-      <div class="drop" id="drop" onclick="document.getElementById('kb-upload').click()">${T("upload")}</div>
-      <input type="file" id="kb-upload" multiple style="display:none" onchange="uploadKb()" />
+      <div class="drop" id="drop">⬆️ ${T("upload")}<br><span class="muted">${T("drop_hint")}</span></div>
+      <input type="file" id="kb-upload" multiple style="display:none" />
       <div id="kb-list"><span class="muted">…</span></div>
     </div>`,
   run: () => `
@@ -318,13 +321,36 @@ async function refreshKb() {
         <button class="btn danger" onclick="deleteKb('${esc(f.name)}')">${T("delete")}</button>
       </div>`).join("") || `<div class="empty">${T("no_files")}</div>`;
 }
-async function uploadKb() {
-  const input = document.getElementById("kb-upload");
-  for (const f of input.files) {
-    const fd = new FormData(); fd.append("file", f);
+async function uploadFiles(fileList) {
+  for (const f of Array.from(fileList || [])) {
+    const fd = new FormData();
+    fd.append("file", f);
     await api(`/api/projects/${window._pid}/kb`, { method: "POST", body: fd });
   }
-  input.value = ""; refreshKb();
+  refreshKb();
+}
+async function uploadKb() {
+  await uploadFiles(document.getElementById("kb-upload").files);
+  document.getElementById("kb-upload").value = "";
+}
+function setupKb() {
+  const input = document.getElementById("kb-upload");
+  const drop = document.getElementById("drop");
+  if (input) input.addEventListener("change", () => uploadFiles(input.files));
+  if (drop) {
+    drop.addEventListener("click", () => input.click());
+    ["dragenter", "dragover"].forEach((ev) =>
+      drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("drag"); })
+    );
+    ["dragleave", "drop"].forEach((ev) =>
+      drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("drag"); })
+    );
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      uploadFiles(e.dataTransfer && e.dataTransfer.files);
+    });
+  }
+  refreshKb();
 }
 async function deleteKb(name) {
   await api(`/api/projects/${window._pid}/kb/${encodeURIComponent(name)}`, { method: "DELETE" });
