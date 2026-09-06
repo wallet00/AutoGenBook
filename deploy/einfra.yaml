@@ -1,0 +1,123 @@
+# AutoGenBook UI — nasazení na e-INFRA (Rancher / Kubernetes)
+# Jeden soubor se všemi objekty. Měníš jen dva placeholdery:
+#   1) <DOCKERHUB_USER>   → tvé uživatelské jméno na Docker Hubu
+#   2) hostname u Ingressu → adresa, na kterou ti e-INFRA umožní přístup
+#
+# Postup:
+#   docker build -t <DOCKERHUB_USER>/autogenbook:latest .
+#   docker login
+#   docker push <DOCKERHUB_USER>/autogenbook:latest
+#   (v Rancheru: Import/Create from file → vložit tento soubor, nebo použi
+#    kubectl apply -n walletzky-ns -f deploy/einfra.yaml)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: autogenbook-env
+  namespace: walletzky-ns
+type: Opaque
+stringData:
+  AUTOGENBOOK_LLM_BASE_URL: "https://llm.ai.e-infra.cz/v1"
+  AUTOGENBOOK_LLM_API_KEY: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"   # ← tvůj e-INFRA klíč
+  AUTOGENBOOK_LLM_MODEL: "qwen3.5"
+  AUTOGENBOOK_NONINTERACTIVE: "1"
+  AUTOGENBOOK_ASSUME_YES: "1"
+  PYTHONUTF8: "1"
+  AUTOGENBOOK_UI_PASSWORD: "zvol-silne-heslo"                       # ← heslo pro vstup do UI
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: autogenbook-projects
+  namespace: walletzky-ns
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autogenbook-ui
+  namespace: walletzky-ns
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autogenbook
+  template:
+    metadata:
+      labels:
+        app: autogenbook
+    spec:
+      containers:
+        - name: ui
+          image: docker.io/<DOCKERHUB_USER>/autogenbook:latest
+          # Přepíše ENTRYPOINT z Dockerfile (python main.py) → spustí UI server
+          command: ["python", "-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: autogenbook-env
+          volumeMounts:
+            - name: projects
+              mountPath: /app/projects
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: projects
+          persistentVolumeClaim:
+            claimName: autogenbook-projects
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autogenbook-ui
+  namespace: walletzky-ns
+spec:
+  selector:
+    app: autogenbook
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: autogenbook-ui
+  namespace: walletzky-ns
+  annotations:
+    # e-INFRA obvykle vystaví TLS certifikát automaticky; pokud ne,
+    # odstraň tls a ingressClassName podle svého clusteru.
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - autogenbook.TVUE-DOMENA.cz          # ← nahraď svým hostname
+      secretName: autogenbook-tls
+  rules:
+    - host: autogenbook.TVUE-DOMENA.cz        # ← nahraď svým hostname
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: autogenbook-ui
+                port:
+                  number: 8080
