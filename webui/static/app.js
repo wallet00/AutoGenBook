@@ -248,8 +248,9 @@ async function loadProject(pid) {
   window._pid = pid; window._proj = p;
   renderProjectTabs();
 }
-function renderProjectTabs(active = "spec") {
+async function renderProjectTabs(active = "spec") {
   const p = window._proj;
+  const viewFn = viewMap[active] || (() => "<div class='empty'></div>");
   app.innerHTML = `
     <div class="page-head">
       <h1>${esc(p.name)}</h1>
@@ -261,7 +262,9 @@ function renderProjectTabs(active = "spec") {
     <div class="tabs">
       ${["spec","kb","run","out"].map((t) => `<button class="tab ${t===active?"active":""}" onclick="tab('${t}')">${TL(t)}</button>`).join("")}
     </div>
-    <div id="tab-body">${viewMap[active]()}</div>`;
+    <div id="tab-body"></div>`;
+  const body = document.getElementById("tab-body");
+  body.innerHTML = await viewFn();
   if (active === "kb") setupKb();
 }
 function tab(name) { renderProjectTabs(name); }
@@ -414,7 +417,8 @@ async function renderOutput() {
   const other = files.filter((f) => !f.path.toLowerCase().endsWith(".md"));
   const tree = mdFiles.map((f) => f.path).join("\n");
   return `
-    <div class="page-head"><h2>${T("output_hint")}</h2></div>
+    <div class="page-head"><h2>${T("output_hint")}</h2>
+      <button class="btn" onclick="viewRunLog()">📄 ${T("run_log")}</button></div>
     <div class="split">
       <div class="card tree">
         <div class="tree-nodes">${mdFiles.map((f) => `
@@ -435,6 +439,15 @@ async function preview(path) {
   } catch (e) { toast(e.message); }
 }
 
+async function viewRunLog() {
+  try {
+    const html = await api(`/api/projects/${window._pid}/log`);
+    const text = html.replace(/^<pre>/, "").replace(/<\/pre>$/, "");
+    document.getElementById("preview").innerHTML =
+      `<pre style="white-space:pre-wrap">${esc(text)}</pre>`;
+    document.querySelectorAll(".node").forEach((n) => n.classList.remove("active"));
+  } catch (e) { toast(e.message); }
+}
 /* dashboard nav */
 async function showDashboard() {
   render(async () => {
@@ -464,6 +477,7 @@ async function init() {
   window.startRun = startRun;
   window.cancelRun = cancelRun;
   window.preview = preview;
+  window.viewRunLog = viewRunLog;
   loadConfig();
   await showDashboard();
 }

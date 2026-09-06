@@ -97,10 +97,15 @@ class OpenRouterLLM:
         self.config = config or LLMConfig()
 
         # Allow overriding the default model via AUTOGENBOOK_LLM_MODEL (e.g. e-INFRA,
-        # local servers, or non-OpenRouter OpenAI-compatible providers). Only applies
-        # when the caller did not pass an explicit LLMConfig.
+        # local servers, or non-OpenRouter OpenAI-compatible providers).
+        # Applies when there is no explicit config, or when the passed config still
+        # carries an OpenRouter default (model names beginning with "openai/") that
+        # does NOT exist on the configured provider. Explicit non-OpenRouter models
+        # (e.g. per-role proposal/reviewer overrides) are left untouched.
         env_model = os.environ.get("AUTOGENBOOK_LLM_MODEL", "").strip()
-        if env_model and not config:
+        if env_model and (
+            not config or (config.model or "").lower().startswith("openai/")
+        ):
             self.config = LLMConfig(
                 model=env_model,
                 temperature=self.config.temperature,

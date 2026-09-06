@@ -253,6 +253,15 @@ def run_events(pid: str):
     )
 
 
+@app.get("/api/projects/{pid}/log")
+def get_run_log(pid: str):
+    _read_meta(pid)
+    log_path = project_paths(pid) / "run.log"
+    if not log_path.exists():
+        raise HTTPException(404, "Log zatím neexistuje")
+    return HTMLResponse(f"<pre>{log_path.read_text(encoding='utf-8', errors='replace')}</pre>")
+
+
 # ── Output ─────────────────────────────────────────────────────────
 def _iter_output(pid: str):
     out = project_paths(pid) / "output"
