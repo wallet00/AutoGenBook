@@ -598,6 +598,12 @@ async function copyNode(path) {
 function cleanForNotebook(t) {
   return t
     .replace(/\r\n/g, "\n")
+    // odstranění LaTeXových citací \cite{...} / \cite[...]{...} (a \citep/\citet, \footnote)
+    .replace(/\\cite(?:p|t)?(?:\[[^\]]*\])?\{[^}]*\}/g, "")
+    .replace(/\\footnote(?:\[[^\]]*\])?\{[^}]*\}/g, "")
+    .replace(/\\cite(?:p|t)?\{[^}]*\}\s*/g, "")
+    // zbytkové LaTeX příkazy \cmd{...} → rozbalí na vnitřní text (např. \textbf{text} -> text)
+    .replace(/\\(?:[a-zA-Z]+|\[^a-zA-Z])(?:\[[^\]]*\])?\{([^{}]*)\}/g, "$1")
     .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, "\n"))
     .replace(/^>\s?/gm, "")
     .replace(/^[-*+]\s+/gm, "")

@@ -52,3 +52,12 @@ RULES
 - If the section is factually grounded but still reads like notes rather than finished scholarship, return ok_to_keep=false and request a rewrite.
 - Use "clarity" for prose-quality and language problems, "consistency" for continuity/terminology issues, and "pedagogy" for missing explanation or framing.
 - If the section can be fixed without new evidence, leave retrieval_queries empty.
+
+
+COMPULSORY STYLE & EXAMPLES
+- Write in a fluent, academic-expository style with natural sentence architecture: use compound sentences, connectives and logical transitions that bind sentences and paragraphs into a continuous argument.
+- Each paragraph MUST develop a complete thought across several sentences. A paragraph must never consist of a single short sentence.
+- STRICTLY FORBIDDEN: choppy single-sentence paragraphs, short fragmented sentences, terse bullet-like one-liners written as prose, and note/list-style writing.
+- Every theoretical idea or concept MUST be illustrated IMMEDIATELY in the same paragraph with a concrete, worked example drawn from digital services, B2B/B2C SaaS, IT platforms, or software applications. If a genuinely adequate example is not available, still provide the closest realistic IT/SaaS/digital-services illustration; never leave a theory without an application example.
+- Keep the text flowing: end paragraphs so they connect to the next one, and avoid abrupt topic jumps.
+
