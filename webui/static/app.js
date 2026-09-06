@@ -73,6 +73,21 @@ const I18N = {
     copied: "Zkopírováno do schránky",
     no_structure: "Zatím nebyla vygenerována struktura. Spusť krok 1 (Outline).",
     tree_hint: "Strom kapitol",
+    prom: "5 · Prompty",
+    prompts_hint: "Ladění systémových promptů AutoGenBooku. Změny se promítnou do rekurzivního generování sekcí.",
+    prom_project: "Projektové prompty (tento projekt)",
+    prom_global: "Globální prompty (výchozí šablony)",
+    prom_reset: "Reset na výchozí",
+    prom_save: "Uložit změny",
+    node_modal_title: "⚡ Vygenerovat tento uzel",
+    node_modal_kb_hint: "Nevybráno = použít celou znalostní bázi.",
+    node_include: "Zahrnout stávající vygenerovaný text jako kontext (přepsat/vylepšit)",
+    node_prompt: "Specifické instrukce pro tuto kapitolu",
+    node_prompt_ph: "Např: Zaměř se na S-D logiku v SaaS, vysvětli rozdíl Value-in-Exchange vs Value-in-Use na příkladu Spotify.",
+    node_kb_title: "Prioritní zdroje (kb/) — MUSÍ být použity",
+    node_run: "Generovat nyní",
+    cancel_modal: "Zrušit",
+    running_from: "Běh probíhá — live výpis",
   },
   en: {
     app_title: "AutoGenBook",
@@ -144,6 +159,21 @@ const I18N = {
     copied: "Copied to clipboard",
     no_structure: "No structure generated yet. Run step 1 (Outline).",
     tree_hint: "Chapter tree",
+    prom: "5 · Prompts",
+    prompts_hint: "Tune AutoGenBook system prompts. Changes propagate to recursive section generation.",
+    prom_project: "Project prompts (this project)",
+    prom_global: "Global prompts (default templates)",
+    prom_reset: "Reset to default",
+    prom_save: "Save changes",
+    node_modal_title: "⚡ Generate this node",
+    node_modal_kb_hint: "None selected = use the whole knowledge base.",
+    node_include: "Include existing generated text as context (rewrite/improve)",
+    node_prompt: "Specific instructions for this chapter",
+    node_prompt_ph: "e.g. Focus on S-D logic in SaaS, explain Value-in-Exchange vs Value-in-Use using Spotify as an example.",
+    node_kb_title: "Priority sources (kb/) — MUST be used",
+    node_run: "Generate now",
+    cancel_modal: "Cancel",
+    running_from: "Run in progress — live log",
   },
 };
 
@@ -152,6 +182,8 @@ const T = (k) => (I18N[LANG][k] ?? I18N.cs[k] ?? k);
 const TL = (k) => (I18N[LANG].tabs[k]);
 
 const app = document.getElementById("app");
+/* Globální stav běhu (nezávislý na aktivní záložce) */
+window._run = { status: "idle", paused: false, lines: [], es: null };
 
 /* ── helpers ──────────────────────────────────────────────────── */
 async function api(url, opts) {
@@ -292,6 +324,12 @@ async function doCreateProject() {
 async function loadProject(pid) {
   const p = await api(`/api/projects/${pid}`);
   window._pid = pid; window._proj = p;
+  // Pokud na backendu běží proces, udržuj globální stav "running" (i po F5).
+  try {
+    const st = await api(`/api/projects/${pid}/status`);
+    if (st.status === "running") { window._run.status = "running"; window._run.paused = !!st.paused; }
+    else { window._run.status = st.status; window._run.paused = false; window._run.lines = []; }
+  } catch (e) {}
   renderProjectTabs();
 }
 async function renderProjectTabs(active = "spec") {
@@ -301,18 +339,24 @@ async function renderProjectTabs(active = "spec") {
     <div class="page-head">
       <h1>${esc(p.name)}</h1>
       <div class="row">
-        ${badge(p.run_status)}
+        <span id="run-badge">${badge(window._run.status === "running" ? "running" : p.run_status)}</span>
         <button class="btn ghost" onclick="showDashboard()">${T("back")}</button>
       </div>
     </div>
     <div class="tabs">
-      ${["spec","kb","run","out"].map((t) => `<button class="tab ${t===active?"active":""}" onclick="tab('${t}')">${TL(t)}</button>`).join("")}
+      ${["spec","kb","run","out","prom"].map((t) => `<button class="tab ${t===active?"active":""}" onclick="tab('${t}')">${TL(t)}</button>`).join("")}
     </div>
     <div id="tab-body"></div>`;
   const body = document.getElementById("tab-body");
   body.innerHTML = await viewFn();
   if (active === "kb") setupKb();
   if (active === "spec") renderParamsForm();
+  if (active === "run") ensureRunView();
+  if (active === "prom") renderPrompts();
+}
+function updateRunBadge() {
+  const b = document.getElementById("run-badge");
+  if (b) b.innerHTML = badge(window._run.status === "running" ? "running" : (window._proj && window._proj.run_status));
 }
 function tab(name) { renderProjectTabs(name); }
 
@@ -355,6 +399,7 @@ const viewMap = {
       </div>
     </div>`,
   out: async () => await renderOutput(),
+  prom: async () => await renderPrompts(),
 };
 
 /* spec save */
@@ -470,7 +515,13 @@ async function deleteKb(name) {
   refreshKb();
 }
 
-/* run */
+/* ── run ─────────────────────────────────────────────────────── */
+function setRunRunning() {
+  window._run.status = "running";
+  window._run.paused = false;
+  window._run.lines = [];
+  if (window._proj) window._proj.run_status = "running";
+}
 async function startRun(mode) {
   const pid = window._pid;
   const cfg = {
@@ -484,27 +535,57 @@ async function startRun(mode) {
   window._model = cfg.model;
   try {
     await apiJSON(`/api/projects/${pid}/run`, "POST", cfg);
-    await renderProjectTabs("run");   // počkat, než se vykreslí záložka (async)
-    startEvents(pid);
+    setRunRunning();
+    await renderProjectTabs("run"); // vykreslí live okno a připojí SSE
   } catch (e) { toast(e.message); }
 }
-function startEvents(pid) {
+function ensureRunView() {
+  if (window._run.status === "running") showRunConsole(window._pid);
+}
+async function showRunConsole(pid) {
   const body = document.getElementById("tab-body");
-  const el = document.createElement("pre");
-  el.className = "console"; el.id = "console";
-  body.innerHTML = `<div class="page-head"><h2>${T("run_log")}</h2>
-    <button class="btn" id="btn-pause" onclick="pauseRun()">⏸ ${T("pause")}</button>
-    <button class="btn danger" onclick="cancelRun()">⏹ ${T("stop")}</button></div>`;
-  body.appendChild(el);
+  if (!body) return;
+  // Po F5 / návratu na záložku: načti historii logu ze serveru
+  if (!window._run.lines.length) {
+    try {
+      const html = await api(`/api/projects/${pid}/log`);
+      const text = html.replace(/^<pre>/, "").replace(/<\/pre>$/, "");
+      window._run.lines = text.split("\n").filter((l) => l !== "");
+    } catch (e) {}
+  }
+  const pausedBtn = window._run.paused
+    ? `<button class="btn accent" id="btn-pause" onclick="resumeRun()">▶ ${T("resume")}</button>`
+    : `<button class="btn" id="btn-pause" onclick="pauseRun()">⏸ ${T("pause")}</button>`;
+  body.innerHTML = `<div class="card">
+    <div class="page-head"><h2>${T("running_from")}</h2>
+      <div class="row">${pausedBtn}<button class="btn danger" onclick="cancelRun()">⏹ ${T("stop")}</button></div>
+    </div>
+    <pre id="console" class="console">${esc(window._run.lines.join("\n"))}</pre>
+  </div>`;
+  const el = document.getElementById("console");
+  if (el) el.scrollTop = el.scrollHeight;
+  openEvents(pid);
+}
+function openEvents(pid) {
+  if (window._run.es) { try { window._run.es.close(); } catch (e) {} }
   const es = new EventSource(`/api/projects/${pid}/events`);
+  window._run.es = es;
   es.onmessage = (ev) => {
-    const d = JSON.parse(ev.data);
+    let d; try { d = JSON.parse(ev.data); } catch (e) { return; }
     if (d.type === "log") {
-      el.textContent += d.text + "\n"; el.scrollTop = el.scrollHeight;
+      window._run.lines.push(d.text);
+      const el = document.getElementById("console");
+      if (el) { el.textContent += d.text + "\n"; el.scrollTop = el.scrollHeight; }
     } else if (d.type === "status") {
-      el.textContent += `\n>>> ${T("status")}: ${T("st_" + (d.status || "idle"))}\n`;
-      es.close();
-      refreshStatus();
+      const st = d.status || "idle";
+      window._run.lines.push(`>>> ${T("status")}: ${T("st_" + st)}`);
+      const el = document.getElementById("console");
+      if (el) { el.textContent += `\n>>> ${T("status")}: ${T("st_" + st)}\n`; }
+      window._run.status = st;
+      window._run.paused = false;
+      if (window._proj) window._proj.run_status = st;
+      es.close(); window._run.es = null;
+      setTimeout(() => updateRunBadge(), 0);
     }
   };
 }
@@ -514,6 +595,7 @@ async function cancelRun() {
 async function pauseRun() {
   try {
     await apiJSON(`/api/projects/${window._pid}/pause`, "POST", {});
+    window._run.paused = true;
     const b = document.getElementById("btn-pause");
     if (b) { b.textContent = "▶ " + T("resume"); b.setAttribute("onclick", "resumeRun()"); b.classList.add("accent"); }
   } catch (e) { toast(e.message); }
@@ -521,16 +603,77 @@ async function pauseRun() {
 async function resumeRun() {
   try {
     await apiJSON(`/api/projects/${window._pid}/resume`, "POST", {});
+    window._run.paused = false;
     const b = document.getElementById("btn-pause");
-    if (b) { b.innerHTML = "⏸ " + T("pause"); b.setAttribute("onclick", "pauseRun()"); b.classList.remove("accent"); }
+    if (b) { b.textContent = "⏸ " + T("pause"); b.setAttribute("onclick", "pauseRun()"); b.classList.remove("accent"); }
   } catch (e) { toast(e.message); }
 }
 async function refreshStatus() {
   try {
     const s = await api(`/api/projects/${window._pid}/status`);
     window._proj.run_status = s.status;
+    window._run.status = s.status;
+    updateRunBadge();
     renderProjectTabs("out");
   } catch (e) {}
+}
+
+/* ── prompts editor ──────────────────────────────────────────── */
+async function renderPrompts() {
+  const pid = window._pid;
+  let data = { keys: [], defaults: {}, global: {}, project: {}, effective: {} };
+  try { data = await api(`/api/projects/${pid}/prompts`); } catch (e) { toast(e.message); }
+  window._promptData = data;
+  const panel = (idp, value) => {
+    const key = idp.slice(3);
+    return `<details class="prompt-item" data-key="${esc(key)}">
+      <summary>${esc(key)} <button class="btn tiny ghost" onclick="event.preventDefault();event.stopPropagation();resetPromptEl('${idp}')">${T("prom_reset")}</button></summary>
+      <textarea id="${idp}" rows="10" class="code">${esc(value)}</textarea>
+    </details>`;
+  };
+  document.getElementById("tab-body").innerHTML = `
+    <div class="card">
+      <p class="muted">${T("prompts_hint")}</p>
+      <h3>${T("prom_project")}</h3>
+      ${data.keys.map((k) => panel(`pp-${k}`, data.effective[k] || "")).join("")}
+      <button class="btn primary" onclick="saveProjectPrompts()">${T("prom_save")}</button>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>${T("prom_global")}</h3>
+      <p class="muted">${T("prom_project")} ukládá překryvy pro tento projekt; globální šablony se aplikují na všechny projekty (po lokální obnově).</p>
+      ${data.keys.map((k) => panel(`gp-${k}`, data.global[k] || data.defaults[k] || "")).join("")}
+      <button class="btn primary" onclick="saveGlobalPrompts()">${T("prom_save")}</button>
+    </div>`;
+}
+function resetPromptEl(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const data = window._promptData || {};
+  el.value = data.defaults[id.slice(3)] || "";
+}
+async function saveProjectPrompts() {
+  const data = window._promptData || {};
+  const overrides = {};
+  for (const k of data.keys || []) {
+    const el = document.getElementById(`pp-${k}`);
+    if (el && el.value.trim() !== (data.defaults[k] || "").trim()) overrides[k] = el.value;
+  }
+  try {
+    await apiJSON(`/api/projects/${window._pid}/prompts`, "PUT", { overrides });
+    toast(T("saved"));
+  } catch (e) { toast(e.message); }
+}
+async function saveGlobalPrompts() {
+  const data = window._promptData || {};
+  const overrides = {};
+  for (const k of data.keys || []) {
+    const el = document.getElementById(`gp-${k}`);
+    if (el && el.value.trim() !== (data.defaults[k] || "").trim()) overrides[k] = el.value;
+  }
+  try {
+    await apiJSON(`/api/prompts/global`, "PUT", { overrides });
+    toast(T("saved"));
+  } catch (e) { toast(e.message); }
 }
 
 /* output */
@@ -550,7 +693,7 @@ function renderTree(items, depth) {
             ${n.exists ? "🟢" : "⚪"} ${esc(n.title || n.id)}
           </span>
           ${size}
-          ${n.leaf ? `<button class="btn tiny" onclick="runSingleNode('${esc(n.id)}')">⚡ ${T("gen_node")}</button>` : ""}
+          ${n.leaf ? `<button class="btn tiny" onclick="runSingleNode('${esc(n.id)}','${esc(n.title)}')">⚡ ${T("gen_node")}</button>` : ""}
         </div>
         ${hasKids ? `<div class="tkids ${open ? "" : "hidden"}">${renderTree(n.children, depth + 1)}</div>` : ""}
       </div>`;
@@ -574,17 +717,53 @@ async function previewNode(nid, title) {
       `<div style="margin-top:18px"><button class="btn accent" onclick="copyNode('${esc(path)}')">${T("copy_notebook")}</button></div>`;
   } catch (e) { toast(e.message); }
 }
-async function runSingleNode(nid) {
+async function runSingleNode(nid, title) {
+  const pid = window._pid;
+  let kbFiles = [];
+  try { kbFiles = await api(`/api/projects/${pid}/kb`); } catch (e) {}
+  const modal = document.getElementById("modal-root");
+  if (!modal) return;
+  modal.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>${T("node_modal_title")} — ${esc(title || nid)} <span class="muted">(${esc(nid)})</span></h3>
+        <div class="check"><input type="checkbox" id="nmode-include" /> ${T("node_include")}</div>
+        <div class="field"><label>${T("node_prompt")}</label>
+          <textarea id="nmode-prompt" rows="3" placeholder="${esc(T("node_prompt_ph"))}"></textarea></div>
+        <div class="field"><label>${T("node_kb_title")}</label>
+          <p class="muted">${T("node_modal_kb_hint")}</p>
+          <div class="kb-multi">${kbFiles.length
+            ? kbFiles.map((f) => `<label class="check kb-item"><input type="checkbox" class="nmode-kb" value="${esc(f.name)}" /> ${esc(f.name)}</label>`).join("")
+            : `<div class="muted">—</div>`}</div>
+        </div>
+        <div class="row" style="margin-top:14px;gap:10px">
+          <button class="btn primary" onclick="runNode('${esc(nid)}')">${T("node_run")}</button>
+          <button class="btn" onclick="closeModal()">${T("cancel_modal")}</button>
+        </div>
+      </div>
+    </div>`;
+  modal.style.display = "block";
+}
+function closeModal() {
+  const modal = document.getElementById("modal-root");
+  if (modal) { modal.innerHTML = ""; modal.style.display = "none"; }
+}
+async function runNode(nid) {
+  const pid = window._pid;
+  const custom_prompt = document.getElementById("nmode-prompt") ? document.getElementById("nmode-prompt").value.trim() : "";
+  const include_existing = !!(document.getElementById("nmode-include") && document.getElementById("nmode-include").checked);
+  const kb_files = Array.from(document.querySelectorAll(".nmode-kb:checked")).map((c) => c.value);
   const cfg = {
-    mode: "single_node",
-    node_id: nid,
+    mode: "single_node", node_id: nid,
     model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
     enable_web_rag: false, audit_mode: "", pdf: false, export_tex: false,
+    include_existing, custom_prompt, kb_files,
   };
+  closeModal();
   try {
-    await apiJSON(`/api/projects/${window._pid}/run`, "POST", cfg);
+    await apiJSON(`/api/projects/${pid}/run`, "POST", cfg);
+    setRunRunning();
     await renderProjectTabs("run");
-    startEvents(window._pid);
   } catch (e) { toast(e.message); }
 }
 async function copyNode(path) {
@@ -708,6 +887,12 @@ async function init() {
   window.analyzeSpec = analyzeSpec;
   window.saveParams = saveParams;
   window.runSingleNode = runSingleNode;
+  window.runNode = runNode;
+  window.closeModal = closeModal;
+  window.renderPrompts = renderPrompts;
+  window.saveProjectPrompts = saveProjectPrompts;
+  window.saveGlobalPrompts = saveGlobalPrompts;
+  window.resetPromptEl = resetPromptEl;
   window.copyNode = copyNode;
   window.toggleNode = toggleNode;
   window.previewNode = previewNode;

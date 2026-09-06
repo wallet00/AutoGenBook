@@ -70,6 +70,28 @@ UI podporuje dvoufázový tok + generování jednotlivých uzlů:
    (načte stávající strukturu a přepíše jen jednu sekci; ve `book_builder.generate_contents`
    parametr `only_key`). Náhled sekce + "Zkopírovat jako podklad pro NotebookLM".
 
+#### Single-node modal
+Kliknutím na "⚡ Vygenerovat tento uzel" se otevře modal s:
+- **Zahrnutí stávajícího textu** (`include_existing`) — předá stávající sekci jako
+  `section_draft` (přepis/vylepšení, default vypnuto);
+- **Vlastní instrukce** (`custom_prompt`) — vloží se do `additional_requirements` (nejvyšší priorita);
+- **Prioritní KB soubory** (`kb_files`) — omezí retrieval pouze na vybrané soubory z `kb/`
+  (filtr `include_sources=` v `RetrievalManager.retrieve`).
+Parametry se do běhu předají env proměnnou `AUTOGENBOOK_NODE_PARAMS` (JSON).
+
+#### Editor promptů (záložka 5 · Prompty)
+- **Projektové prompty** — uloží překryvy do `project.json["prompts"]` (aplikují se na tento projekt);
+- **Globální prompty** — uloží do `REPO_ROOT/global_prompts.json` (výchozí šablony pro všechny projekty).
+Překryvy se při běhu aplikují: `book_pipeline._apply_prompt_overrides` spojí globální soubor +
+projektové (env `AUTOGENBOOK_PROMPT_OVERRIDES`) přes výchozí prompty z `prompts/book/*.md`
+před `set_prompt_registry`. Reset vrátí výchozí šablonu.
+
+#### Robustní stav běhu
+Globální `window._run` drží stav (`status`, `lines`, `es`) nezávisle na záložce. Záložka
+"3 · Generování" při `status == "running"` vždy vykreslí živé okno (live log + Pozastavit/Zastavit),
+při návratu se log dosadí ze serveru (`GET .../log`) a znovu připojí SSE (`.../events`);
+přežije přepnutí záložek i obnovení stránky (F5).
+
 ### Nové API
 
 - `POST /api/projects/<id>/analyze-spec`

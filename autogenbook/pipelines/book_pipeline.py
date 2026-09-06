@@ -32,6 +32,39 @@ from autogenbook.prompts.registry import get_prompt, set_prompt_registry
 from rag_kb import KnowledgeBase
 from autogenbook.retrieval.kb_citations import build_kb_index, kb_cite_key
 from autogenbook.retrieval.manager import RetrievalManager
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_json_env(name: str) -> Any:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _apply_prompt_overrides(prompts: Dict[str, str]) -> Dict[str, str]:
+    """Překryje výchozí prompty globálními (soubor global_prompts.json) a projektovými (env)."""
+    merged = dict(prompts)
+    global_file = REPO_ROOT / "global_prompts.json"
+    if global_file.exists():
+        try:
+            g = json.loads(global_file.read_text(encoding="utf-8"))
+            if isinstance(g, dict):
+                for k, v in g.items():
+                    if isinstance(v, str) and v.strip():
+                        merged[k] = v
+        except Exception:
+            pass
+    env_ovr = _load_json_env("AUTOGENBOOK_PROMPT_OVERRIDES")
+    if isinstance(env_ovr, dict):
+        for k, v in env_ovr.items():
+            if isinstance(v, str) and v.strip():
+                merged[k] = v
+    return merged
 from autogenbook.retrieval.mcp_papers import MCPPaperRetriever
 from autogenbook.retrieval.tavily import TavilyRetriever
 from utils import extract_first_json_object
@@ -233,7 +266,7 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
 
         use_legacy_tex = bool(getattr(args, "legacy_tex", False))
         content_format = "latex" if use_legacy_tex else "markdown"
-        prompts = load_book_prompts(content_format=content_format)
+        prompts = _apply_prompt_overrides(load_book_prompts(content_format=content_format))
         set_prompt_registry("book", prompts)
 
         if run_ctx is None:
@@ -504,6 +537,9 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
             save_graph_json(g, progress_path)
 
         single_node = str(getattr(args, "single_node", "") or "").strip() or None
+        # Per-node konfigurace z UI (custom prompt, prioritní KB soubory, stávající text)
+        _node_params = _load_json_env("AUTOGENBOOK_NODE_PARAMS") or {}
+        node_config: Dict[str, Any] = _node_params if isinstance(_node_params, dict) else {}
         if getattr(args, "outline_only", False) and not single_node:
             print("[OUTLINE] Režim outline_only — struktura vygenerována, sekce se nepíší.")
             print(json.dumps({"structure_written": str(json_path), "graph_written": str(progress_path)}, ensure_ascii=False, indent=2))
@@ -540,6 +576,7 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
             progress_path=progress_path,
             resume=bool(args.resume),
             only_key=single_node,
+            node_config=node_config,
         )
         if single_node:
             print(f"[SINGLE_NODE] Vygenerována pouze sekce {single_node}.")

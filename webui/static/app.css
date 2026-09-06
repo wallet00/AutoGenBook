@@ -165,3 +165,25 @@ textarea:focus, input:focus { outline: 2px solid #b6c4f7; border-color: var(--ac
 }
 .toast.show { opacity: 1; transform: translateY(0); }
 meta { color: var(--muted); }
+
+/* Modal (single node) */
+#modal-root { position: fixed; inset: 0; z-index: 1000; }
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(15,20,32,.55);
+  display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px; overflow: auto;
+}
+.modal {
+  background: var(--panel, #fff); border: 1px solid var(--border); border-radius: var(--radius, 12px);
+  width: min(640px, 100%); padding: 22px; box-shadow: 0 12px 40px rgba(0,0,0,.3);
+}
+.modal h3 { margin-top: 0; }
+.modal textarea { width: 100%; min-height: 72px; }
+.kb-multi { max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+.kb-item { display: block; padding: 3px 4px; }
+
+/* Prompts editor */
+.prompt-item { border: 1px solid var(--border); border-radius: 8px; margin: 6px 0; overflow: hidden; }
+.prompt-item summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 8px; background: var(--panel); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.prompt-item textarea.code { width: 100%; border: none; border-top: 1px solid var(--border); font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.5; padding: 10px; box-sizing: border-box; }
+.btn.tiny { padding: 2px 8px; font-size: 11px; }
+.btn.tiny.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }

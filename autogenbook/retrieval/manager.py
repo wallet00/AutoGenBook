@@ -66,10 +66,16 @@ class RetrievalManager:
         diversify_sources: bool = False,
         diversify_multiplier: int = 3,
         allow_web: Optional[bool] = None,
+        include_sources: Optional[Iterable[str]] = None,
     ) -> List[RetrievalItem]:
         k = k or self.default_k
         items: List[RetrievalItem] = []
         use_web = self.enable_web if allow_web is None else (self.enable_web and bool(allow_web))
+
+        # Volitelný filtr: povolit pouze chunky z vybraných souborů (podle jména).
+        source_filter = None
+        if include_sources:
+            source_filter = {str(s).strip() for s in include_sources if str(s).strip()}
 
         if self.local_kb is not None:
             fetch_k = max(k, 1)
@@ -77,18 +83,21 @@ class RetrievalManager:
                 fetch_k = max(k * max(diversify_multiplier, 1), k + 2)
             raw_items: List[RetrievalItem] = []
             for chunk, score in self.local_kb.retrieve(query, k=fetch_k):
+                src_name = Path(chunk.source_path).name
+                if source_filter is not None and src_name not in source_filter:
+                    continue
                 cite_key = chunk.cite_key or kb_cite_key(chunk.source_path, chunk.loc)
                 raw_items.append(
                     RetrievalItem(
                         rid=chunk.rid,
                         kind="kb",
-                        source=Path(chunk.source_path).name,
+                        source=src_name,
                         loc=chunk.loc,
                         score=score,
                         cite_key=cite_key,
                         text=chunk.text,
                         url=None,
-                        title=Path(chunk.source_path).name,
+                        title=src_name,
                     )
                 )
             if diversify_sources:

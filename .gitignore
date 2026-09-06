@@ -30,3 +30,6 @@ Thumbs.db
 
 # Web UI project data (generovaná uživatelská data, nepatří do gitu)
 projects/
+
+# Server-level global prompt overrides (user data)
+global_prompts.json

@@ -353,6 +353,37 @@ def _analysis_params(meta: dict) -> dict:
     return meta.get("analysis") or {}
 
 
+def _node_env(pid: str, cfg: dict) -> dict:
+    """Per-node parametry pro single_node běh (custom prompt, prioritní KB soubory, stávající text)."""
+    mode = cfg.get("mode") or "book"
+    if mode != "single_node":
+        return {}
+    node: dict = {}
+    if bool(cfg.get("include_existing")):
+        node["include_existing"] = True
+    custom = str(cfg.get("custom_prompt") or "").strip()
+    if custom:
+        node["custom_prompt"] = custom
+    kb_list = [str(x) for x in (cfg.get("kb_files") or []) if str(x).strip()]
+    if kb_list:
+        node["kb_files"] = kb_list
+    if not node:
+        return {}
+    return {"AUTOGENBOOK_NODE_PARAMS": json.dumps(node, ensure_ascii=False)}
+
+
+def _prompt_env(pid: str) -> dict:
+    """Projektové překryvy promptů (project.json["prompts"]) předané do běhu."""
+    meta = _read_meta(pid)
+    ovr = meta.get("prompts") or {}
+    if not isinstance(ovr, dict) or not ovr:
+        return {}
+    clean = {k: v for k, v in ovr.items() if isinstance(v, str) and v.strip()}
+    if not clean:
+        return {}
+    return {"AUTOGENBOOK_PROMPT_OVERRIDES": json.dumps(clean, ensure_ascii=False)}
+
+
 def _build_argv(pid: str, cfg: dict) -> list[str]:
     p = project_paths(pid)
     out = p / "output"
@@ -407,6 +438,8 @@ def start_run(pid: str, payload: dict):
     analysis = _analysis_params(_read_meta(pid))
     if analysis:
         extra_env["AUTOGENBOOK_UI_PARAMS"] = json.dumps(analysis, ensure_ascii=False)
+    extra_env.update(_node_env(pid, payload))
+    extra_env.update(_prompt_env(pid))
     try:
         state = runner.start({"id": pid, "path": project_paths(pid)}, argv, extra_env)
     except RunError as e:
@@ -568,3 +601,114 @@ def get_structure(pid: str):
     total = max(0, len(nodes) - 1)
     generated = sum(1 for k in sec if k in nodes)
     return {"tree": tree, "generated": generated, "total": total, "has_structure": has_graph}
+
+
+# ── Prompt Management (editor promptů) ────────────────────────────
+from autogenbook.prompts.book_loader import load_book_prompts  # noqa: E402
+
+EDITABLE_PROMPT_KEYS = [
+    "book_section_writer_system",
+    "book_section_writer_user",
+    "book_section_reviewer_system",
+    "book_section_reviewer_user",
+    "book_section_revision_system",
+    "book_section_revision_user",
+    "book_json_from_txt_system",
+    "book_json_from_txt_user",
+    "structure_subdivider_system",
+    "structure_subdivider_user",
+    "length_control_user",
+    "context_memory_user",
+    "global_system_policy",
+]
+
+GLOBAL_PROMPTS_FILE = REPO_ROOT / "global_prompts.json"
+
+
+def _default_prompts() -> dict:
+    try:
+        all_prompts = load_book_prompts(content_format="markdown")
+    except Exception:
+        all_prompts = {}
+    return {k: all_prompts.get(k, "") for k in EDITABLE_PROMPT_KEYS}
+
+
+def _load_global_overrides() -> dict:
+    if GLOBAL_PROMPTS_FILE.exists():
+        try:
+            data = json.loads(GLOBAL_PROMPTS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_global_overrides(data: dict) -> None:
+    try:
+        GLOBAL_PROMPTS_FILE.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except PermissionError as e:
+        raise HTTPException(500, f"Nemohu uložit globální prompty: {e}") from e
+
+
+@app.get("/api/projects/{pid}/prompts")
+def get_project_prompts(pid: str):
+    meta = _read_meta(pid)
+    defaults = _default_prompts()
+    global_ovr = _load_global_overrides()
+    project_ovr = (meta.get("prompts") or {}) if isinstance(meta.get("prompts"), dict) else {}
+    keys = EDITABLE_PROMPT_KEYS
+    effective = {
+        k: project_ovr.get(k) or global_ovr.get(k) or defaults.get(k, "")
+        for k in keys
+    }
+    return {
+        "keys": keys,
+        "defaults": defaults,
+        "global": global_ovr,
+        "project": project_ovr,
+        "effective": effective,
+    }
+
+
+@app.put("/api/projects/{pid}/prompts")
+def save_project_prompts(pid: str, payload: dict):
+    meta = _read_meta(pid)
+    overrides = payload.get("overrides")
+    if not isinstance(overrides, dict):
+        raise HTTPException(400, "overrides musí být objekt")
+    cur = dict(meta.get("prompts") or {})
+    for k, v in overrides.items():
+        if k not in EDITABLE_PROMPT_KEYS:
+            continue
+        if isinstance(v, str) and v.strip():
+            cur[k] = v
+        else:
+            cur.pop(k, None)  # null/prázdné → reset na výchozí
+    meta["prompts"] = cur
+    meta["updated"] = _now()
+    _write_meta(pid, meta)
+    return {"ok": True, "project": cur}
+
+
+@app.get("/api/prompts/global")
+def get_global_prompts():
+    defaults = _default_prompts()
+    return {"keys": EDITABLE_PROMPT_KEYS, "defaults": defaults, "global": _load_global_overrides()}
+
+
+@app.put("/api/prompts/global")
+def save_global_prompts(payload: dict):
+    overrides = payload.get("overrides")
+    if not isinstance(overrides, dict):
+        raise HTTPException(400, "overrides musí být objekt")
+    clean = {}
+    for k, v in overrides.items():
+        if k not in EDITABLE_PROMPT_KEYS:
+            continue
+        if isinstance(v, str) and v.strip():
+            clean[k] = v
+    _save_global_overrides(clean)
+    return {"ok": True, "global": clean}

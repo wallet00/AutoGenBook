@@ -594,6 +594,7 @@ def generate_contents(
     progress_path: Optional[Path] = None,
     resume: bool = False,
     only_key: Optional[str] = None,
+    node_config: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Generate section content for each leaf node and write to files.
@@ -711,6 +712,31 @@ def generate_contents(
         if not previous_sections:
             previous_sections = "(none)"
 
+        # Per-node konfigurace (single-node z UI): vlastní prompt, prioritní zdroje,
+        # případně použití stávajícího textu jako základu (sekci se přepíše/vylepší).
+        nc: Dict[str, Any] = (node_config or {}) if only_key else {}
+        node_requirements = additional_requirements
+        custom_prompt = str(nc.get("custom_prompt") or "").strip()
+        if custom_prompt:
+            node_requirements = (
+                additional_requirements
+                + "\nSpecific instructions for this section (highest priority):\n"
+                + custom_prompt
+            ).strip()
+        include_sources = None
+        if nc.get("kb_files"):
+            include_sources = [str(x) for x in nc["kb_files"] if str(x).strip()] or None
+        section_draft = ""
+        if bool(nc.get("include_existing")):
+            _existing_path = node.get("content_file_path") or str((sections_dir / f"{node_key}{section_ext}").resolve())
+            if Path(_existing_path).exists():
+                try:
+                    _existing = Path(_existing_path).read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    _existing = ""
+                if _existing.strip():
+                    section_draft = _existing.strip()
+
         retrieved_context = ""
         query = f"{book_title}\n{book_summary}\n{node.get('title','')}\n{node.get('summary','')}"
         if retrieval_manager is not None:
@@ -719,6 +745,7 @@ def generate_contents(
                 k=cfg.rag_top_k,
                 diversify_sources=True,
                 allow_web=False,
+                include_sources=include_sources,
             )
             retrieved_context = retrieval_manager.format_context(items, max_chars_total=cfg.rag_max_chars_total)
         if not retrieved_context:
@@ -731,7 +758,7 @@ def generate_contents(
                 "book_title": book_title,
                 "book_summary": book_summary,
                 "target_readers": target_readers or "(not specified)",
-                "additional_requirements": additional_requirements or "(none)",
+                "additional_requirements": node_requirements or "(none)",
                 "equation_frequency": get_equation_frequency_prompt(
                     int(g.graph.get("equation_frequency_level", cfg.equation_frequency_level))
                 ),
@@ -743,7 +770,7 @@ def generate_contents(
                 "section_title": node.get("title", ""),
                 "section_summary": node.get("summary", ""),
                 "n_pages": node.get("n_pages", 1.0),
-                "section_draft": "",
+                "section_draft": section_draft,
             },
             agent_ctx,
         )
@@ -755,7 +782,7 @@ def generate_contents(
             if draft_query:
                 refined_query = f"{node.get('title','')}\n{draft_query}"
                 refined_items = retrieval_manager.retrieve(
-                    refined_query, k=cfg.rag_top_k, diversify_sources=True, allow_web=True
+                    refined_query, k=cfg.rag_top_k, diversify_sources=True, allow_web=True, include_sources=include_sources
                 )
                 merged_items = _dedupe_items(items + refined_items)
                 if _item_keys(merged_items) != _item_keys(items):
@@ -770,7 +797,7 @@ def generate_contents(
                             "book_title": book_title,
                             "book_summary": book_summary,
                             "target_readers": target_readers or "(not specified)",
-                            "additional_requirements": additional_requirements or "(none)",
+                            "additional_requirements": node_requirements or "(none)",
                             "equation_frequency": get_equation_frequency_prompt(
                                 int(
                                     g.graph.get(
