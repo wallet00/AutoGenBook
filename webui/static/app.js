@@ -38,6 +38,9 @@ const I18N = {
     run: "Spustit generování",
     running: "Probíhá…",
     cancel: "Zrušit běh",
+    pause: "Pozastavit",
+    resume: "Pokračovat",
+    stop: "Zastavit",
     run_log: "Průběh běhu",
     status: "Status",
     output_hint: "Vygenerované soubory a kapitoly. Klikni pro náhled.",
@@ -89,6 +92,9 @@ const I18N = {
     run: "Start generation",
     running: "Running…",
     cancel: "Cancel run",
+    pause: "Pause",
+    resume: "Resume",
+    stop: "Stop",
     run_log: "Run log",
     status: "Status",
     output_hint: "Generated files and chapters. Click to preview.",
@@ -382,7 +388,8 @@ function startEvents(pid) {
   const el = document.createElement("pre");
   el.className = "console"; el.id = "console";
   body.innerHTML = `<div class="page-head"><h2>${T("run_log")}</h2>
-    <button class="btn danger" onclick="cancelRun()">${T("cancel")}</button></div>`;
+    <button class="btn" id="btn-pause" onclick="pauseRun()">⏸ ${T("pause")}</button>
+    <button class="btn danger" onclick="cancelRun()">⏹ ${T("stop")}</button></div>`;
   body.appendChild(el);
   const es = new EventSource(`/api/projects/${pid}/events`);
   es.onmessage = (ev) => {
@@ -398,6 +405,20 @@ function startEvents(pid) {
 }
 async function cancelRun() {
   try { await apiJSON(`/api/projects/${window._pid}/cancel`, "POST", {}); } catch (e) {}
+}
+async function pauseRun() {
+  try {
+    await apiJSON(`/api/projects/${window._pid}/pause`, "POST", {});
+    const b = document.getElementById("btn-pause");
+    if (b) { b.textContent = "▶ " + T("resume"); b.setAttribute("onclick", "resumeRun()"); b.classList.add("accent"); }
+  } catch (e) { toast(e.message); }
+}
+async function resumeRun() {
+  try {
+    await apiJSON(`/api/projects/${window._pid}/resume`, "POST", {});
+    const b = document.getElementById("btn-pause");
+    if (b) { b.innerHTML = "⏸ " + T("pause"); b.setAttribute("onclick", "pauseRun()"); b.classList.remove("accent"); }
+  } catch (e) { toast(e.message); }
 }
 async function refreshStatus() {
   try {
@@ -476,6 +497,8 @@ async function init() {
   window.deleteKb = deleteKb;
   window.startRun = startRun;
   window.cancelRun = cancelRun;
+  window.pauseRun = pauseRun;
+  window.resumeRun = resumeRun;
   window.preview = preview;
   window.viewRunLog = viewRunLog;
   loadConfig();

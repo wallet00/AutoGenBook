@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -50,8 +51,7 @@ class Runner:
         env.setdefault("PYTHONUTF8", "1")
 
         logf = log_path.open("a", encoding="utf-8")
-        proc = subprocess.Popen(
-            argv,
+        popen_kwargs = dict(
             cwd=str(REPO_ROOT),
             env=env,
             stdout=logf,
@@ -60,6 +60,10 @@ class Runner:
             encoding="utf-8",
             errors="replace",
         )
+        if os.name == "posix":
+            # vlastní session + procesní skupina → pause/(re)start/kill ovlivní celý strom
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(argv, **popen_kwargs)
         state = {
             "status": "running",
             "pid": proc.pid,
@@ -92,15 +96,66 @@ class Runner:
         except Exception:
             pass
 
+    def _pgid(self, pid: str):
+        proc = self._procs.get(pid)
+        if proc is None or os.name != "posix":
+            return None
+        try:
+            return os.getpgid(proc.pid)
+        except (ProcessLookupError, PermissionError):
+            return None
+
+    def pause(self, pid: str) -> bool:
+        pgid = self._pgid(pid)
+        if pgid is None:
+            return False
+        try:
+            os.killpg(pgid, signal.SIGSTOP)
+            self._state[pid]["paused"] = True
+            return True
+        except Exception:
+            return False
+
+    def resume(self, pid: str) -> bool:
+        pgid = self._pgid(pid)
+        if pgid is None:
+            return False
+        try:
+            os.killpg(pgid, signal.SIGCONT)
+            self._state[pid]["paused"] = False
+            return True
+        except Exception:
+            return False
+
     def cancel(self, pid: str) -> bool:
-        if pid in self._procs:
-            self._state[pid]["cancelled"] = True
-            try:
+        if pid not in self._procs:
+            return False
+        self._state[pid]["cancelled"] = True
+        pgid = self._pgid(pid)
+        try:
+            if pgid is not None:
+                os.killpg(pgid, signal.SIGCONT)  # aby signály prošly i při pozastavení
+                os.killpg(pgid, signal.SIGTERM)
+            else:
                 self._procs[pid].terminate()
+        except Exception:
+            try:
+                self._procs[pid].kill()
             except Exception:
                 pass
-            return True
-        return False
+        # eskalace na SIGKILL, pokud proces do 3 s neskončí
+        def _escalate():
+            time.sleep(3)
+            if self.status(pid).get("status") == "running":
+                try:
+                    if pgid is not None:
+                        os.killpg(pgid, signal.SIGKILL)
+                    else:
+                        self._procs[pid].kill()
+                except Exception:
+                    pass
+        threading.Thread(target=_escalate, daemon=True).start()
+        return True
 
     def status(self, pid: str) -> dict:
         return self._state.get(pid, {"status": "idle"})

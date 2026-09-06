@@ -237,6 +237,16 @@ def cancel_run(pid: str):
     return {"ok": runner.cancel(pid)}
 
 
+@app.post("/api/projects/{pid}/pause")
+def pause_run(pid: str):
+    return {"ok": runner.pause(pid)}
+
+
+@app.post("/api/projects/{pid}/resume")
+def resume_run(pid: str):
+    return {"ok": runner.resume(pid)}
+
+
 @app.get("/api/projects/{pid}/status")
 def run_status(pid: str):
     return runner.status(pid)
