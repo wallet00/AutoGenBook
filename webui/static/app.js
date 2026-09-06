@@ -29,6 +29,16 @@ const I18N = {
     settings_hint: "Konfigurace běhu generování.",
     model: "Model",
     web_rag: "Povolit web vyhledávání (RAG)",
+    rag_ok: "Tavily API klíč aktivní",
+    rag_missing: "Tavily klíč chybí",
+    rag_ok_tip: "Vyhledávání na internetu bude funkční",
+    rag_missing_tip: "Web RAG poběží pouze nad lokální znalostní bází",
+    rag_warn_before: "Web RAG je zapnutý, ale chybí Tavily API klíč – vyhledávání na internetu NEBUDE aktivní (pouze lokální KB).",
+    rag_warn_confirm: "Web RAG je zapnutý, ale chybí Tavily API klíč – vyhledávání na internetu NEBUDE aktivní, jen lokální KB.\nPokračovat?",
+    tavily_label: "Tavily API klíč (Web RAG)",
+    tavily_set: "nastaveno",
+    tavily_save: "Uložit klíč",
+    tavily_saved: "Tavily klíč uložen",
     audit: "Audit",
     audit_off: "Vypnut",
     audit_warn: "Varovat",
@@ -146,6 +156,16 @@ const I18N = {
     settings_hint: "Generation run configuration.",
     model: "Model",
     web_rag: "Enable web retrieval (RAG)",
+    rag_ok: "Tavily API key active",
+    rag_missing: "Tavily key missing",
+    rag_ok_tip: "Internet search will work",
+    rag_missing_tip: "Web RAG will run only over the local knowledge base",
+    rag_warn_before: "Web RAG is enabled, but no Tavily API key is set – internet search will NOT be active (local KB only).",
+    rag_warn_confirm: "Web RAG is enabled, but no Tavily API key is set – internet search will NOT be active (local KB only).\nContinue anyway?",
+    tavily_label: "Tavily API key (Web RAG)",
+    tavily_set: "set",
+    tavily_save: "Save key",
+    tavily_saved: "Tavily key saved",
     audit: "Audit",
     audit_off: "Off",
     audit_warn: "Warn",
@@ -339,6 +359,48 @@ async function loadConfig() {
     const lo = document.getElementById("logout-btn");
     if (lo) lo.style.display = c.auth ? "" : "none";
   } catch (e) {}
+  try {
+    const t = await api("/api/config/tavily");
+    window._tavily = t || { configured: false, source: null, masked: "" };
+    updateRagStatus();
+  } catch (e) { window._tavily = window._tavily || { configured: false }; }
+}
+
+function tavilyIndicator() {
+  const st = window._tavily || {};
+  return st.configured
+    ? `<span class="rag-ok" title="${T("rag_ok_tip")}">🟢 ${T("rag_ok")}</span>`
+    : `<span class="rag-warn" title="${T("rag_missing_tip")}">⚠️ ${T("rag_missing")}</span>`;
+}
+function updateRagStatus() {
+  const cb = document.getElementById("cfg-rag");
+  const ind = document.getElementById("rag-status");
+  const warn = document.getElementById("rag-warn");
+  if (ind) ind.innerHTML = tavilyIndicator();
+  const on = cb ? cb.checked : false;
+  if (warn) warn.style.display = (on && !(window._tavily || {}).configured) ? "block" : "none";
+}
+function updateNodeRagStatus() {
+  const cb = document.getElementById("nmode-rag");
+  const ind = document.getElementById("nrag-status");
+  const warn = document.getElementById("nrag-warn");
+  if (ind) ind.innerHTML = tavilyIndicator();
+  const on = cb ? cb.checked : false;
+  if (warn) warn.style.display = (on && !(window._tavily || {}).configured) ? "block" : "none";
+}
+async function saveTavily() {
+  const el = document.getElementById("cfg-tavily");
+  const val = el ? el.value.trim() : "";
+  const btn = document.getElementById("tavily-btn");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await apiJSON("/api/config/tavily", "PUT", { api_key: val });
+    window._tavily = r.tavily || { configured: false };
+    if (el) el.value = "";
+    toast(T("tavily_saved"));
+    await renderProjectTabs("run");
+  } catch (e) { toast(e.message); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 function dashboard(projects) {
@@ -417,7 +479,7 @@ async function renderProjectTabs(active = "spec") {
   body.innerHTML = await viewFn();
   if (active === "kb") setupKb();
   if (active === "spec") renderParamsForm();
-  if (active === "run") ensureRunView();
+  if (active === "run") { ensureRunView(); updateRagStatus(); }
   if (active === "prom") renderPrompts();
 }
 function updateRunBadge() {
@@ -450,7 +512,12 @@ const viewMap = {
         <div class="field"><label>${T("model")}</label>
           <input type="text" id="cfg-model" value="${esc(window._model || "")}" placeholder="${esc("qwen3.5")}" /></div>
       </div>
-      <div class="check"><input type="checkbox" id="cfg-rag" /> ${T("web_rag")}</div>
+      <div class="check"><input type="checkbox" id="cfg-rag" onchange="updateRagStatus()" /> ${T("web_rag")} <span id="rag-status"></span></div>
+      <div class="rag-warn" id="rag-warn">⚠️ ${T("rag_warn_before")}</div>
+      <div class="field"><label>${T("tavily_label")} <span class="muted">${ (window._tavily && window._tavily.masked) ? T("tavily_set") + ": " + esc(window._tavily.masked) : "" }</span></label>
+        <div class="row" style="gap:8px"><input type="password" id="cfg-tavily" placeholder="tvly-..." style="flex:1;min-width:220px" autocomplete="off" />
+        <button class="btn" id="tavily-btn" onclick="saveTavily()">${T("tavily_save")}</button></div>
+      </div>
       <div class="row"><div class="field"><label>${T("audit")}</label>
         <select id="cfg-audit" class="btn">
           <option value="">${T("audit_off")}</option>
@@ -609,6 +676,9 @@ async function startRun(mode) {
     export_tex: document.getElementById("cfg-tex").checked,
   };
   window._model = cfg.model;
+  if (cfg.enable_web_rag && !(window._tavily || {}).configured) {
+    if (!confirm(T("rag_warn_confirm"))) return;
+  }
   try {
     await apiJSON(`/api/projects/${pid}/run`, "POST", cfg);
     setRunRunning();
@@ -935,7 +1005,8 @@ async function runSingleNode(nid, title) {
           <label class="check"><input type="radio" name="nmode-gen" value="enrich" onclick="onGenMode()" /> ${T("genmode_enrich")}</label>
           <p class="muted" id="nmode-enrich-note" style="display:none;margin:2px 0 0">${T("genmode_enrich_note")}</p>
         </div>
-        <div class="check"><input type="checkbox" id="nmode-rag" /> ${T("node_rag")}</div>
+        <div class="check"><input type="checkbox" id="nmode-rag" onchange="updateNodeRagStatus()" /> ${T("node_rag")} <span id="nrag-status"></span></div>
+        <div class="rag-warn" id="nrag-warn">⚠️ ${T("rag_warn_before")}</div>
         <div class="field"><label>${T("node_prompt")}</label>
           <textarea id="nmode-prompt" rows="3" placeholder="${esc(T("node_prompt_ph"))}"></textarea></div>
         <div class="field"><label>${T("node_kb_title")}</label>
@@ -967,10 +1038,14 @@ async function runNode(nid) {
   const custom_prompt = document.getElementById("nmode-prompt") ? document.getElementById("nmode-prompt").value.trim() : "";
   const include_existing = gen_mode === "enrich";
   const kb_files = Array.from(document.querySelectorAll(".nmode-kb:checked")).map((c) => c.value);
+  const ragOn = !!(document.getElementById("nmode-rag") && document.getElementById("nmode-rag").checked);
+  if (ragOn && !(window._tavily || {}).configured) {
+    if (!confirm(T("rag_warn_confirm"))) return;
+  }
   const cfg = {
     mode: "single_node", node_id: nid, gen_mode,
     model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
-    enable_web_rag: !!(document.getElementById("nmode-rag") && document.getElementById("nmode-rag").checked),
+    enable_web_rag: ragOn,
     audit_mode: "", pdf: false, export_tex: false,
     include_existing, custom_prompt, kb_files,
   };
@@ -1112,6 +1187,9 @@ async function init() {
   window.runBranch = runBranch;
   window.openTranslate = openTranslate;
   window.doTranslate = doTranslate;
+  window.saveTavily = saveTavily;
+  window.updateRagStatus = updateRagStatus;
+  window.updateNodeRagStatus = updateNodeRagStatus;
   window.renderPrompts = renderPrompts;
   window.saveProjectPrompts = saveProjectPrompts;
   window.saveGlobalPrompts = saveGlobalPrompts;

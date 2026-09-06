@@ -131,6 +131,15 @@ a uzel označí jako `manual_override` + `locked`. Cílový jazyk se předvypln�
 - `PUT /api/projects/<id>/analysis`
 - `GET /api/projects/<id>/structure`
 - `POST /api/projects/<id>/translate-node`  (překlad uzlu 🌐)
+- `GET /api/config/tavily` / `PUT /api/config/tavily`  (Tavily API klíč pro Web RAG)
+
+### Web RAG + Tavily
+
+Web vyhledávání (RAG) přes Tavily: **runner** automaticky předá `TAVILY_API_KEY` do CLI podprocesu
+a klíč rozlišuje s prioritou **systémová proměnná → `.env` → globální konfigurace** (`global_config.json`,
+ukládá se z UI). V záložce **3 · Generování** je pole pro zadání klíče (`tvly-...`) a vedle checkboxu
+Web RAG indikátor 🟢 (klíč aktivní) / ⚠️ (klíč chybí – poběží jen lokální KB). Před spuštěním generování
+s Web RAG a bez klíče UI zobrazí varování.
 
 ### Nové CLI přepínače
 

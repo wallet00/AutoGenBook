@@ -94,6 +94,20 @@ h3 { font-size: 15px; margin: 0 0 10px; }
   background: var(--bg2, rgba(128,128,128,.08));
   border: 1px solid var(--border); border-radius: 6px;
 }
+#rag-status, #nrag-status { margin-left: 8px; font-weight: 600; }
+.rag-ok { color: #2e8b57; }
+.rag-warn { color: #b8860b; }
+#rag-warn, #nrag-warn {
+  display: none;
+  margin: 6px 0 12px;
+  padding: 8px 10px;
+  background: rgba(255, 193, 7, .12);
+  border: 1px solid #f0c36d;
+  border-radius: 6px;
+  color: #8a6d1d;
+  font-size: 13px;
+  line-height: 1.4;
+}
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }

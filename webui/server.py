@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from openrouter_llm import OpenRouterLLM
 
-from .runner import RunError, runner
+from .runner import RunError, load_env_file, resolve_tavily_key, runner, save_tavily_key
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PROJECTS_ROOT = REPO_ROOT / "projects"
@@ -890,3 +890,33 @@ def save_global_prompts(payload: dict):
             clean[k] = v
     _save_global_overrides(clean)
     return {"ok": True, "global": clean}
+
+
+# ── Globální konfigurace (Tavily API klíč pro Web RAG) ──────────
+def _tavily_status() -> dict:
+    key = resolve_tavily_key()
+    if os.environ.get("TAVILY_API_KEY", "").strip():
+        source = "env"
+    elif load_env_file(REPO_ROOT / ".env").get("TAVILY_API_KEY", "").strip():
+        source = "dotenv"
+    elif key:
+        source = "config"
+    else:
+        source = None
+    masked = (key[:6] + "…" + key[-4:]) if key and len(key) > 12 else ("••••••••" if key else "")
+    return {"configured": bool(key), "source": source, "masked": masked}
+
+
+@app.get("/api/config/tavily")
+def get_config_tavily():
+    return _tavily_status()
+
+
+@app.put("/api/config/tavily")
+def put_config_tavily(payload: dict):
+    key = str(payload.get("api_key") or "").strip()
+    try:
+        save_tavily_key(key)
+    except PermissionError as e:
+        raise HTTPException(500, f"Nemohu uložit Tavily klíč: {e}") from e
+    return {"ok": True, "tavily": _tavily_status()}

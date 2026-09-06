@@ -33,3 +33,4 @@ projects/
 
 # Server-level global prompt overrides (user data)
 global_prompts.json
+global_config.json

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import signal
 import subprocess
 import threading
@@ -9,6 +10,7 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+GLOBAL_CONFIG_FILE = REPO_ROOT / "global_config.json"
 
 
 class RunError(Exception):
@@ -27,6 +29,44 @@ def load_env_file(path: Path) -> dict:
         key, value = line.split("=", 1)
         env[key.strip()] = value.strip().strip('"').strip("'")
     return env
+
+
+def _load_global_config() -> dict:
+    """Načte globální konfiguraci serveru (např. uložený Tavily klíč)."""
+    if GLOBAL_CONFIG_FILE.exists():
+        try:
+            data = json.loads(GLOBAL_CONFIG_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+    return {}
+
+
+def resolve_tavily_key() -> str:
+    """Vrátí Tavily API klíč s prioritou: systémové prostředí → .env → globální konfigurace."""
+    val = os.environ.get("TAVILY_API_KEY", "").strip()
+    if val:
+        return val
+    val = load_env_file(REPO_ROOT / ".env").get("TAVILY_API_KEY", "").strip()
+    if val:
+        return val
+    val = str(_load_global_config().get("tavily_api_key", "") or "").strip()
+    return val
+
+
+def save_tavily_key(key: str) -> str:
+    """Uloží Tavily klíč do globální konfigurace serveru (prázdný klíč = smazat)."""
+    data = _load_global_config()
+    key = key.strip()
+    if key:
+        data["tavily_api_key"] = key
+    else:
+        data.pop("tavily_api_key", None)
+    GLOBAL_CONFIG_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return key
 
 
 class Runner:
@@ -49,6 +89,11 @@ class Runner:
         env.setdefault("AUTOGENBOOK_NONINTERACTIVE", "1")
         env.setdefault("AUTOGENBOOK_ASSUME_YES", "1")
         env.setdefault("PYTHONUTF8", "1")
+        # Tavily API klíč pro Web RAG – předat ho CLI podprocesu (ať už je odkudkoli).
+        if not env.get("TAVILY_API_KEY"):
+            tk = resolve_tavily_key()
+            if tk:
+                env["TAVILY_API_KEY"] = tk
 
         logf = log_path.open("a", encoding="utf-8")
         popen_kwargs = dict(
