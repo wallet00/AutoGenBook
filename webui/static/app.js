@@ -56,6 +56,23 @@ const I18N = {
     confirm_delete: "Opravdu smazat projekt?",
     provider: "Poskytovatel",
     not_set: "nenastaven",
+    analyze_btn: "Analýza AI & Předvyplnit parametry",
+    analyzing: "Probíhá analýza AI…",
+    params_title: "Parametry kurzu (Setup Assistant)",
+    params_note: "Uloží se do project.json a vloží se do osnovy pro generování jako kontext.",
+    param_title: "Název (navržený)",
+    param_audience: "Persona / Cílová skupina",
+    param_tone: "Tón textu",
+    param_purpose: "Účel výstupu",
+    param_depth: "Doporučená hloubka členění",
+    save_params: "Uložit parametry",
+    outline_run: "1 · Vygenerovat pouze strukturu (Outline)",
+    full_run: "2 · Generovat kompletní knihu",
+    gen_node: "Generovat tento uzel",
+    copy_notebook: "Zkopírovat jako podklad pro NotebookLM",
+    copied: "Zkopírováno do schránky",
+    no_structure: "Zatím nebyla vygenerována struktura. Spusť krok 1 (Outline).",
+    tree_hint: "Strom kapitol",
   },
   en: {
     app_title: "AutoGenBook",
@@ -110,6 +127,23 @@ const I18N = {
     confirm_delete: "Really delete project?",
     provider: "Provider",
     not_set: "not set",
+    analyze_btn: "AI Analysis & Prefill parameters",
+    analyzing: "AI analysis running…",
+    params_title: "Course parameters (Setup Assistant)",
+    params_note: "Saved to project.json and injected into the outline as generation context.",
+    param_title: "Title (suggested)",
+    param_audience: "Persona / Target audience",
+    param_tone: "Tone of voice",
+    param_purpose: "Output purpose",
+    param_depth: "Recommended depth",
+    save_params: "Save parameters",
+    outline_run: "1 · Generate structure only (Outline)",
+    full_run: "2 · Generate full book",
+    gen_node: "Generate this node",
+    copy_notebook: "Copy as NotebookLM source",
+    copied: "Copied to clipboard",
+    no_structure: "No structure generated yet. Run step 1 (Outline).",
+    tree_hint: "Chapter tree",
   },
 };
 
@@ -278,6 +312,7 @@ async function renderProjectTabs(active = "spec") {
   const body = document.getElementById("tab-body");
   body.innerHTML = await viewFn();
   if (active === "kb") setupKb();
+  if (active === "spec" && (window._proj.analysis || {}).suggested_title) renderParamsForm();
 }
 function tab(name) { renderProjectTabs(name); }
 
@@ -285,8 +320,12 @@ const viewMap = {
   spec: () => `
     <div class="card">
       <p class="muted">${T("spec_hint")}</p>
-      <textarea id="spec-editor" rows="22">${esc(window._proj.spec)}</textarea>
-      <div style="margin-top:12px"><button class="btn primary" onclick="saveSpec()">${T("save")}</button></div>
+      <textarea id="spec-editor" rows="18">${esc(window._proj.spec)}</textarea>
+      <div class="row" style="margin-top:12px;gap:10px;flex-wrap:wrap">
+        <button class="btn primary" onclick="saveSpec()">${T("save")}</button>
+        <button class="btn accent" onclick="analyzeSpec()">✨ ${T("analyze_btn")}</button>
+      </div>
+      <div id="params-form" style="display:none;margin-top:18px"></div>
     </div>`,
   kb: () => `
     <div class="card">
@@ -303,15 +342,18 @@ const viewMap = {
           <input type="text" id="cfg-model" value="${esc(window._model || "")}" placeholder="${esc("qwen3.5")}" /></div>
       </div>
       <div class="check"><input type="checkbox" id="cfg-rag" /> ${T("web_rag")}</div>
-      <div class="field"><label>${T("audit")}</label>
+      <div class="row"><div class="field"><label>${T("audit")}</label>
         <select id="cfg-audit" class="btn">
           <option value="">${T("audit_off")}</option>
           <option value="warn">${T("audit_warn")}</option>
           <option value="strict">${T("audit_strict")}</option>
-        </select></div>
+        </select></div></div>
       <div class="check"><input type="checkbox" id="cfg-pdf" checked /> ${T("pdf")}</div>
       <div class="check"><input type="checkbox" id="cfg-tex" /> ${T("export_tex")}</div>
-      <button class="btn primary" id="run-btn" onclick="startRun()">▶ ${T("run")}</button>
+      <div class="row" style="margin-top:14px;gap:10px;flex-wrap:wrap">
+        <button class="btn primary" onclick="startRun('outline_only')">🧭 ${T("outline_run")}</button>
+        <button class="btn primary" onclick="startRun('book')">📖 ${T("full_run")}</button>
+      </div>
     </div>`,
   out: async () => await renderOutput(),
 };
@@ -322,6 +364,57 @@ async function saveSpec() {
   try {
     await apiJSON(`/api/projects/${window._pid}/spec`, "PUT", { spec });
     window._proj = await api(`/api/projects/${window._pid}`);
+    toast(T("saved"));
+  } catch (e) { toast(e.message); }
+}
+
+/* setup assistant (analyze spec → prefill params) */
+async function analyzeSpec() {
+  const btn = document.getElementById("analyze-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ " + T("analyzing"); }
+  try {
+    const res = await apiJSON(`/api/projects/${window._pid}/analyze-spec`, "POST", {});
+    window._proj = await api(`/api/projects/${window._pid}`);
+    window._proj.analysis = res;
+    renderParamsForm();
+    toast(T("saved"));
+  } catch (e) { toast(e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "✨ " + T("analyze_btn"); } }
+}
+function renderParamsForm() {
+  const box = document.getElementById("params-form");
+  if (!box) return;
+  const a = (window._proj && window._proj.analysis) || {};
+  const f = (k, d) => esc((a[k] != null && a[k] !== "") ? a[k] : d);
+  box.style.display = "block";
+  box.innerHTML = `
+    <h3>✨ ${T("params_title")}</h3>
+    <p class="muted">${T("params_note")}</p>
+    <div class="field"><label>${T("param_title")}</label>
+      <input type="text" id="an-title" value="${f("suggested_title", "")}" /></div>
+    <div class="field"><label>${T("param_audience")}</label>
+      <input type="text" id="an-audience" value="${f("target_audience", "")}" /></div>
+    <div class="field"><label>${T("param_tone")}</label>
+      <input type="text" id="an-tone" value="${f("tone_of_voice", "")}" /></div>
+    <div class="field"><label>${T("param_purpose")}</label>
+      <input type="text" id="an-purpose" value="${f("output_purpose", "")}" /></div>
+    <div class="field"><label>${T("param_depth")}</label>
+      <select id="an-depth" class="btn">
+        ${[2,3,4,5].map((d) => `<option value="${d}" ${Number(a.recommended_depth)===d?"selected":""}>${d}</option>`).join("")}
+      </select></div>
+    <div style="margin-top:12px"><button class="btn primary" onclick="saveParams()">${T("save_params")}</button></div>`;
+}
+async function saveParams() {
+  const payload = {
+    suggested_title: document.getElementById("an-title").value.trim(),
+    target_audience: document.getElementById("an-audience").value.trim(),
+    tone_of_voice: document.getElementById("an-tone").value.trim(),
+    output_purpose: document.getElementById("an-purpose").value.trim(),
+    recommended_depth: Number(document.getElementById("an-depth").value) || 3,
+  };
+  try {
+    const r = await apiJSON(`/api/projects/${window._pid}/analysis`, "PUT", payload);
+    window._proj.analysis = r.analysis;
     toast(T("saved"));
   } catch (e) { toast(e.message); }
 }
@@ -373,9 +466,10 @@ async function deleteKb(name) {
 }
 
 /* run */
-async function startRun() {
+async function startRun(mode) {
   const pid = window._pid;
   const cfg = {
+    mode: mode || "book",
     model: document.getElementById("cfg-model").value.trim() || window._model || "",
     enable_web_rag: document.getElementById("cfg-rag").checked,
     audit_mode: document.getElementById("cfg-audit").value,
@@ -435,22 +529,123 @@ async function refreshStatus() {
 }
 
 /* output */
+function renderTree(items, depth) {
+  depth = depth || 0;
+  return (items || []).map((n) => {
+    const hasKids = n.children && n.children.length;
+    const open = depth === 0;
+    const size = n.exists ? `<span class="muted">(${sizeH(n.size)})</span>` : "";
+    return `
+      <div class="tnode">
+        <div class="trow" style="--depth:${depth}">
+          ${hasKids
+            ? `<span class="caret" onclick="toggleNode(this)">${open ? "▼" : "▶"}</span>`
+            : `<span class="caret leaf"></span>`}
+          <span class="tlabel ${n.exists ? "link" : ""} ${hasKids ? "branch" : ""}" onclick="previewNode('${esc(n.id)}','${esc(n.title)}')">
+            ${n.exists ? "🟢" : "⚪"} ${esc(n.title || n.id)}
+          </span>
+          ${size}
+          ${n.leaf ? `<button class="btn tiny" onclick="runSingleNode('${esc(n.id)}')">⚡ ${T("gen_node")}</button>` : ""}
+        </div>
+        ${hasKids ? `<div class="tkids ${open ? "" : "hidden"}">${renderTree(n.children, depth + 1)}</div>` : ""}
+      </div>`;
+  }).join("");
+}
+function toggleNode(caret) {
+  const row = caret.parentElement;
+  const kids = row.nextElementSibling;
+  const open = !row.classList.contains("branch-open");
+  row.classList.toggle("branch-open", open);
+  if (kids) kids.classList.toggle("hidden", !open);
+  caret.textContent = open ? "▼" : "▶";
+}
+async function previewNode(nid, title) {
+  const path = `sections/${nid}.md`;
+  try {
+    const html = await api(`/api/projects/${window._pid}/output/file?path=${encodeURIComponent(path)}`);
+    const text = html.replace(/^<pre>/, "").replace(/<\/pre>$/, "");
+    document.getElementById("preview").innerHTML =
+      `<h1>${esc(title || nid)}</h1>${md(text)}` +
+      `<div style="margin-top:18px"><button class="btn accent" onclick="copyNode('${esc(path)}')">${T("copy_notebook")}</button></div>`;
+  } catch (e) { toast(e.message); }
+}
+async function runSingleNode(nid) {
+  const cfg = {
+    mode: "single_node",
+    node_id: nid,
+    model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
+    enable_web_rag: false, audit_mode: "", pdf: false, export_tex: false,
+  };
+  try {
+    await apiJSON(`/api/projects/${window._pid}/run`, "POST", cfg);
+    await renderProjectTabs("run");
+    startEvents(window._pid);
+  } catch (e) { toast(e.message); }
+}
+async function copyNode(path) {
+  try {
+    const html = await api(`/api/projects/${window._pid}/output/file?path=${encodeURIComponent(path)}`);
+    const raw = html.replace(/^<pre>/, "").replace(/<\/pre>$/, "");
+    await copyText(cleanForNotebook(raw));
+    toast(T("copied"));
+  } catch (e) { toast(e.message); }
+}
+function cleanForNotebook(t) {
+  return t
+    .replace(/\r\n/g, "\n")
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, "\n"))
+    .replace(/^>\s?/gm, "")
+    .replace(/^[-*+]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\s*[-=]{3,}\s*$/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\((?:https?:[^)]+)\)/g, "$1")
+    .replace(/^\s*\|.*\|\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+function copyText(t) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t);
+  return new Promise((res, rej) => {
+    const ta = document.createElement("textarea");
+    ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); res(); } catch (e) { rej(e); }
+    ta.remove();
+  });
+}
 async function renderOutput() {
   const pid = window._pid;
+  const head = `<div class="page-head"><h2>${T("output_hint")}</h2>
+      <button class="btn" onclick="viewRunLog()">📄 ${T("run_log")}</button></div>`;
+  let st = { tree: [], has_structure: false, generated: 0, total: 0 };
+  try { st = await api(`/api/projects/${pid}/structure`); } catch (e) {}
+  if (st.has_structure && st.tree.length) {
+    return `${head}
+      <div class="split">
+        <div class="card tree" style="min-width:320px;max-width:560px">
+          <div class="muted" style="margin-bottom:8px">${T("tree_hint")} — ${st.generated}/${st.total}</div>
+          <div class="tree-nodes">${renderTree(st.tree)}</div>
+        </div>
+        <div class="preview" id="preview">${T("output_hint")}</div>
+      </div>`;
+  }
+  // fallback: plochý seznam souborů
   let files = [];
   try { files = await api(`/api/projects/${pid}/output`); } catch (e) {}
-  if (!files.length) return `<div class="empty">${T("no_output")}</div>`;
+  if (!files.length) return head + `<div class="empty">${T("no_output")}</div>`;
   const mdFiles = files.filter((f) => f.path.toLowerCase().endsWith(".md"));
-  const other = files.filter((f) => !f.path.toLowerCase().endsWith(".md"));
-  const tree = mdFiles.map((f) => f.path).join("\n");
-  return `
-    <div class="page-head"><h2>${T("output_hint")}</h2>
-      <button class="btn" onclick="viewRunLog()">📄 ${T("run_log")}</button></div>
+  return `${head}
     <div class="split">
       <div class="card tree">
         <div class="tree-nodes">${mdFiles.map((f) => `
           <div class="node" data-path="${esc(f.path)}" onclick="preview('${esc(f.path)}')">
-            <span class="file-icon">📄</span>${esc(f.path)}</div>`).join("") || `<div class="empty">${T("no_output")}</div>`}</div>
+            <span class="file-icon">📄</span>${esc(f.path)}</div>`).join("") || `<div class="empty">${T("no_structure")}</div>`}</div>
       </div>
       <div class="preview" id="preview">${T("output_hint")}</div>
     </div>`;
@@ -499,6 +694,12 @@ async function init() {
   window.doCreateProject = doCreateProject;
   window.tab = tab;
   window.saveSpec = saveSpec;
+  window.analyzeSpec = analyzeSpec;
+  window.saveParams = saveParams;
+  window.runSingleNode = runSingleNode;
+  window.copyNode = copyNode;
+  window.toggleNode = toggleNode;
+  window.previewNode = previewNode;
   window.uploadKb = uploadKb;
   window.deleteKb = deleteKb;
   window.startRun = startRun;

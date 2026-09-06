@@ -593,6 +593,7 @@ def generate_contents(
     retrieval_manager: Optional[RetrievalManager] = None,
     progress_path: Optional[Path] = None,
     resume: bool = False,
+    only_key: Optional[str] = None,
 ) -> None:
     """
     Generate section content for each leaf node and write to files.
@@ -670,6 +671,12 @@ def generate_contents(
     for node_key in nodes:
         node = g.nodes[node_key]
         completed += 1
+
+        # single-node režim: zpracuj pouze zvolený uzel (přepis vynutí i u existujícího souboru)
+        if only_key is not None:
+            if node_key != only_key:
+                continue
+            resume = False  # cílovou sekci vždy (pře)generuj
 
         existing_path = node.get("content_file_path")
         if resume:

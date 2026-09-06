@@ -47,6 +47,8 @@ body {
 .btn.ghost { background: transparent; border-color: transparent; }
 .btn.danger { color: var(--err); border-color: #f0c4c4; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.tiny { padding: 2px 7px; font-size: 12px; margin-left: 6px; }
+.btn.accent { color: var(--accent); border-color: var(--accent); }
 
 /* Cards / headers */
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
@@ -116,6 +118,22 @@ textarea:focus, input:focus { outline: 2px solid #b6c4f7; border-color: var(--ac
 .tree .node.active { background: var(--accent); color: #fff; }
 .tree .node .ic { flex: 0 0 auto; }
 .file-icon { margin-right: 6px; }
+/* tree nodes (collapsible) */
+.tree-nodes { font-size: 14px; }
+.tnode { margin: 1px 0; }
+.trow {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 4px 6px; border-radius: 6px; padding-left: calc(10px + var(--depth, 0) * 18px);
+}
+.trow:hover { background: #eef1fa; }
+.caret { cursor: pointer; width: 16px; text-align: center; flex: 0 0 auto; user-select: none; color: var(--accent); }
+.caret.leaf { cursor: default; color: transparent; }
+.tlabel { cursor: default; }
+.tlabel.link { cursor: pointer; }
+.tlabel.branch { font-weight: 600; }
+.tlabel.link:hover { text-decoration: underline; }
+.tkids { margin-left: 0; }
+.hidden { display: none; }
 .preview {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 20px; min-height: 300px; overflow: auto; max-height: 70vh;

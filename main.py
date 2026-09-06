@@ -313,6 +313,17 @@ def parse_args(argv=None):
         action="store_true",
         help="Pokračovat z dříve uložených částečných výsledků v --out-dir.",
     )
+    p.add_argument(
+        "--outline-only",
+        action="store_true",
+        help="Vygenerovat pouze strukturu knihy (book_structure.json + structure_graph.json), bez psaní sekcí.",
+    )
+    p.add_argument(
+        "--single-node",
+        default=None,
+        metavar="KEY",
+        help="Vygenerovat/přepsat pouze jednu sekci dle node key (např. 1-2-1) z načtené struktury.",
+    )
 
     # Output format toggles
     p.add_argument("--no-tex", action="store_true", help="Negenerovat .tex výstup.")

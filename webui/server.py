@@ -13,6 +13,8 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from openrouter_llm import OpenRouterLLM
+
 from .runner import RunError, runner
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -252,22 +254,118 @@ def delete_kb(pid: str, filename: str):
     return {"ok": True}
 
 
+# ── Analysis (Setup Assistant) ────────────────────────────────────
+ANALYSIS_FIELDS = ("suggested_title", "target_audience", "tone_of_voice", "output_purpose", "recommended_depth")
+
+
+@app.post("/api/projects/{pid}/analyze-spec")
+def analyze_spec(pid: str):
+    meta = _read_meta(pid)
+    p = project_paths(pid)
+    spec_path = p / "spec.txt"
+    spec = (spec_path.read_text(encoding="utf-8", errors="ignore") if spec_path.exists() else meta.get("spec", "") or "").strip()[:12000]
+
+    kb_context = ""
+    kb = p / "kb"
+    if kb.exists():
+        took = 0
+        for f in sorted(kb.iterdir()):
+            if took >= 3:
+                break
+            if f.is_file() and f.suffix.lower() in (".txt", ".md", ".csv", ".json", ".html", ""):
+                try:
+                    t = f.read_text(encoding="utf-8", errors="ignore")[:6000]
+                    kb_context += f"\n--- {f.name} ---\n{t}\n"
+                    took += 1
+                except Exception:
+                    pass
+    llm = OpenRouterLLM()
+    sys = (
+        "Jsi asistent pro přípravu výukových materiálů. Z dané osnovy / sylabu a materiálů kurzu "
+        "navrhni parametry pro generování učebnice. Odpověz VÝHRADNĚ validním JSON objektem s klíči: "
+        "suggested_title (string), target_audience (string, 15-40 slov, např. \"Studenti informatiky a Service Designu na FI MUNI\"), "
+        "tone_of_voice (string, krátký popis stylu, např. \"Akademický výkladový text s IT/SaaS příklady\"), "
+        "output_purpose (string, např. \"Textbook / Podklad pro NotebookLM\"), "
+        "recommended_depth (integer 2-5). Bez žádného textu mimo JSON."
+    )
+    user = f"OSNOVA / SYLABUS:\n{spec}\n"
+    if kb_context:
+        user += f"\nMATERIÁLY (znalostní báze):\n{kb_context}\n"
+    try:
+        res = llm.chat_json([{"role": "system", "content": sys}, {"role": "user", "content": user}])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Analýza osnovy selhala: {e}")
+    if isinstance(res, dict):
+        result = res
+    elif isinstance(res, list) and res and isinstance(res[0], dict):
+        result = res[0]
+    else:
+        result = {}
+    try:
+        depth = int(result.get("recommended_depth") or 3)
+    except (TypeError, ValueError):
+        depth = 3
+    suggested = {
+        "suggested_title": str(result.get("suggested_title") or "").strip()[:200],
+        "target_audience": str(result.get("target_audience") or "").strip()[:300],
+        "tone_of_voice": str(result.get("tone_of_voice") or "").strip()[:300],
+        "output_purpose": str(result.get("output_purpose") or "").strip()[:200],
+        "recommended_depth": max(2, min(5, depth)),
+    }
+    meta["analysis"] = suggested
+    meta["updated"] = _now()
+    _write_meta(pid, meta)
+    return suggested
+
+
+@app.put("/api/projects/{pid}/analysis")
+def save_analysis(pid: str, payload: dict):
+    meta = _read_meta(pid)
+    cur = dict(meta.get("analysis") or {})
+    for key in ANALYSIS_FIELDS:
+        if key in payload:
+            cur[key] = payload[key]
+    meta["analysis"] = cur
+    meta["updated"] = _now()
+    _write_meta(pid, meta)
+    return {"ok": True, "analysis": cur}
+
+
 # ── Run ────────────────────────────────────────────────────────────
+def _analysis_params(meta: dict) -> dict:
+    return meta.get("analysis") or {}
+
+
 def _build_argv(pid: str, cfg: dict) -> list[str]:
     p = project_paths(pid)
-    spec = p / "spec.txt"
     out = p / "output"
     kb = p / "kb"
+    spec = p / "spec.txt"
+    mode = (cfg.get("mode") or "book") or "book"
+    cli_mode = "book" if mode in ("outline_only", "single_node") else mode
+
     argv = [
         "python",
         str(REPO_ROOT / "main.py"),
-        "--mode", cfg.get("mode", "book"),
+        "--mode", cli_mode,
         "--input", str(spec),
         "--out-dir", str(out),
     ]
     kb_files = [f for f in kb.iterdir() if f.is_file() and not f.name.startswith(".")] if kb.exists() else []
     if kb_files:
         argv += ["--kb-dir", str(kb)]
+
+    if mode == "outline_only":
+        argv += ["--outline-only", "--use-txt"]
+        return argv
+
+    if mode == "single_node":
+        node_key = str(cfg.get("node_id") or "").strip().replace(".", "-")
+        if not node_key:
+            raise RunError("single_node vyžaduje node_id")
+        argv += ["--single-node", node_key, "--resume", "--no-md", "--no-tex", "--no-pdf"]
+        return argv
+
     if cfg.get("enable_web_rag"):
         argv += ["--enable-web-rag"]
     audit = cfg.get("audit_mode")
@@ -289,6 +387,9 @@ def start_run(pid: str, payload: dict):
     extra_env = {}
     if payload.get("model"):
         extra_env["AUTOGENBOOK_LLM_MODEL"] = payload["model"]
+    analysis = _analysis_params(_read_meta(pid))
+    if analysis:
+        extra_env["AUTOGENBOOK_UI_PARAMS"] = json.dumps(analysis, ensure_ascii=False)
     try:
         state = runner.start({"id": pid, "path": project_paths(pid)}, argv, extra_env)
     except RunError as e:
@@ -378,3 +479,75 @@ def download_output(pid: str, name: str):
     if not str(target).startswith(str(base)) or not target.is_file():
         raise HTTPException(404, "Soubor neexistuje")
     return FileResponse(target, filename=target.name)
+
+
+# ── Structure (strom kapitol) ─────────────────────────────────────
+@app.get("/api/projects/{pid}/structure")
+def get_structure(pid: str):
+    _read_meta(pid)
+    out = project_paths(pid) / "output"
+    graph_path = out / "structure_graph.json"
+    fallback = out / "book_structure.json"
+    nodes: dict = {}
+    edges: list = []
+    has_graph = False
+
+    if graph_path.exists():
+        try:
+            data = json.loads(graph_path.read_text(encoding="utf-8"))
+            nodes = data.get("nodes") or {}
+            edges = data.get("edges") or []
+            has_graph = True
+        except Exception:
+            nodes, edges = {}, []
+    if not has_graph and fallback.exists():
+        try:
+            data = json.loads(fallback.read_text(encoding="utf-8"))
+            nodes = {"book": {"title": data.get("title", "")}}
+            edges = []
+
+            def _walk(d: dict, parent: str, prefix: str) -> None:
+                key = prefix
+                node = dict(d)
+                node.pop("childs", None)
+                nodes[key] = node
+                edges.append([parent, key])
+                for i, ch in enumerate(d.get("childs") or [], 1):
+                    ck = str(i) if prefix == "book" else f"{prefix}-{i}"
+                    _walk(ch, key, ck)
+
+            for i, ch in enumerate(data.get("childs") or [], 1):
+                _walk(ch, "book", str(i))
+            has_graph = True
+        except Exception:
+            nodes, edges = {}, []
+
+    sections_dir = out / "sections"
+    sec: dict = {}
+    if sections_dir.exists():
+        for f in sections_dir.iterdir():
+            if f.suffix == ".md" and f.is_file():
+                sec[f.stem] = {"exists": True, "size": f.stat().st_size, "mtime": float(f.stat().st_mtime)}
+
+    children: dict = {}
+    for pair in edges:
+        children.setdefault(pair[0], []).append(pair[1])
+
+    def _build(key: str) -> dict:
+        nd = nodes.get(key) or {}
+        return {
+            "id": key,
+            "title": str(nd.get("title") or "").strip(),
+            "summary": str(nd.get("summary") or "").strip(),
+            "children": [_build(c) for c in children.get(key, [])],
+            "leaf": not (children.get(key) or []),
+            **sec.get(key, {"exists": False, "size": 0, "mtime": 0}),
+        }
+
+    roots = children.get("book", []) or [
+        k for k in nodes if k != "book" and not any(e[1] == k for e in edges)
+    ]
+    tree = [_build(r) for r in roots]
+    total = max(0, len(nodes) - 1)
+    generated = sum(1 for k in sec if k in nodes)
+    return {"tree": tree, "generated": generated, "total": total, "has_structure": has_graph}

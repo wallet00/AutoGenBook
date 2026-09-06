@@ -271,6 +271,59 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
         print(f"[KB] Trvání: {_format_duration(time.perf_counter() - t0)}")
 
         llm = OpenRouterLLM()
+        # Parametry kurzu z UI (jestliže jsou) — vkládají se do osnovy pro tvorbu
+        # struktury i do atributů grafu jako kontext pro psaní sekcí.
+        ui_params = {}
+        try:
+            _raw = os.environ.get("AUTOGENBOOK_UI_PARAMS", "").strip()
+            if _raw:
+                _loaded = json.loads(_raw)
+                if isinstance(_loaded, dict):
+                    ui_params = _loaded
+        except Exception:
+            ui_params = {}
+
+        def _apply_ui_params(spec_text: str) -> str:
+            if not ui_params:
+                return spec_text
+            lines = []
+            for key, label in (
+                ("suggested_title", "Název"),
+                ("target_audience", "Cílová skupina"),
+                ("tone_of_voice", "Tón textu"),
+                ("output_purpose", "Účel výstupu"),
+            ):
+                val = str(ui_params.get(key) or "").strip()
+                if val:
+                    lines.append(f"- {label}: {val}")
+            depth = ui_params.get("recommended_depth")
+            if depth not in (None, ""):
+                lines.append(f"- Doporučená hloubka členění: {depth}")
+            if not lines:
+                return spec_text
+            return (spec_text or "").rstrip() + "\n\n# Dodatečné požadavky (autoGenBook UI)\n" + "\n".join(lines) + "\n"
+
+        def _inject_ui_params_into_graph(g: Any) -> None:
+            if not ui_params:
+                return
+            if str(ui_params.get("target_audience") or "").strip():
+                g.graph["target_readers"] = str(ui_params["target_audience"]).strip()
+            extra_bits = []
+            if str(ui_params.get("tone_of_voice") or "").strip():
+                extra_bits.append(f"Tón textu: {ui_params['tone_of_voice'].strip()}")
+            if str(ui_params.get("output_purpose") or "").strip():
+                extra_bits.append(f"Účel výstupu: {ui_params['output_purpose'].strip()}")
+            if extra_bits:
+                current = str(g.graph.get("additional_requirements") or "").strip()
+                g.graph["additional_requirements"] = (current + "\n" + "\n".join(extra_bits)).strip()
+            try:
+                depth = int(ui_params.get("recommended_depth"))
+                if depth:
+                    g.graph["max_depth"] = depth
+            except (TypeError, ValueError):
+                pass
+            save_graph_json(g, progress_path)
+
         retrieval_manager = RetrievalManager(local_kb=kb, default_k=6, max_chars_total=6000)
         if getattr(args, "enable_web_rag", False):
             mcp_papers = MCPPaperRetriever()
@@ -371,7 +424,7 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
                 if choice == "j":
                     book_json = json.loads(_read_text(json_path))
                 else:
-                    txt_spec = _read_text(input_path)
+                    txt_spec = _apply_ui_params(_read_text(input_path))
                     book_json = generate_book_json_from_txt(llm, txt_spec, kb=kb)
                     usage = llm.get_last_usage()
                     if usage:
@@ -393,7 +446,7 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
                             print(f"[JSON] Revize uložena do: {revised_path}")
                     json_path.write_text(json.dumps(book_json, ensure_ascii=False, indent=2), encoding="utf-8")
             else:
-                txt_spec = _read_text(input_path)
+                txt_spec = _apply_ui_params(_read_text(input_path))
                 book_json = generate_book_json_from_txt(llm, txt_spec, kb=kb)
                 usage = llm.get_last_usage()
                 if usage:
@@ -442,12 +495,19 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
         if not str(g.graph.get("input_sha256", "")).strip():
             g.graph["input_sha256"] = input_sha256
         save_graph_json(g, progress_path)
+        _inject_ui_params_into_graph(g)
 
         author = str(g.graph.get("author", "") or "").strip()
         if not author:
             author = _ask_text("Zadejte autora knihy", required=True)
             g.graph["author"] = author
             save_graph_json(g, progress_path)
+
+        single_node = str(getattr(args, "single_node", "") or "").strip() or None
+        if getattr(args, "outline_only", False) and not single_node:
+            print("[OUTLINE] Režim outline_only — struktura vygenerována, sekce se nepíší.")
+            print(json.dumps({"structure_written": str(json_path), "graph_written": str(progress_path)}, ensure_ascii=False, indent=2))
+            return 0
 
         # Generate section contents
         export_tex = bool(getattr(args, "export_tex", False))
@@ -479,7 +539,11 @@ def run_book(args: Any, run_ctx: Optional[RunContext], logger: Any) -> int:
             retrieval_manager=retrieval_manager,
             progress_path=progress_path,
             resume=bool(args.resume),
+            only_key=single_node,
         )
+        if single_node:
+            print(f"[SINGLE_NODE] Vygenerována pouze sekce {single_node}.")
+            return 0
         print(f"[GEN] Trvani: {_format_duration(time.perf_counter() - t0)}")
 
         outputs = []
