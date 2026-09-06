@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         g++ \
         git \
+        passwd \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,7 +34,18 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Workdirs bind-mounted from the host (see docker-compose.yml).
-RUN mkdir -p /app/input /app/output
+RUN mkdir -p /app/input /app/output /app/projects
+
+# ── Non-root user (Pod Security 'restricted' compliant) ────────────
+# UID/GID 2000 = povolena „restricted" skupina (k8s.io), pouziva se take jako
+# fsGroup pro PVC, takze pod muze do /app/projects zapisovat.
+# Samotný /app dáme uživateli, aby si aplikace mohla zapisovat, kdyby potřebovala.
+RUN groupadd --gid 2000 appuser \
+    && useradd --uid 2000 --gid appuser --create-home appuser \
+    && chown -R appuser:appuser /app
+
+USER appuser
+ENV HOME=/home/appuser
 
 # Non-interactive defaults are safe for containerized runs.
 ENV AUTOGENBOOK_NONINTERACTIVE=1 \

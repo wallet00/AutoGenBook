@@ -256,11 +256,10 @@ kubectl label ns walletzky-ns \
 (nebo v Rancheru: Namespace → nastavení Pod Security → enforce = baseline,
 pokud na to máš práva). Pak znovu deployni deployment.
 
-> Pokud `restricted` změnit nesmíš, je potřeba image upravit na non-root
-> (nový uživatel + `USER` v Dockerfile) a doplnit do Deploymentu `securityContext`
-> (drop ALL, runAsNonRoot, runAsUser, seccomp `RuntimeDefault`,
-> `allowPrivilegeEscalation: false`) + `fsGroup` pro zápis na PVC. Ozvi se
-> a připravím ti tuto variantu (závisí na typu úložiště e-INFRA).
+> Image už běží non-root (UID/GID 2000, `USER appuser`) a `securityContext`
+> (drop ALL, runAsNonRoot, seccomp `RuntimeDefault`, `fsGroup: 2000`) je v
+> `deploy/einfra.yaml` přidán — **namespace může zůstat `restricted`**.
+> Po pullu přestav a pushni image znovu a nasaď nový manifest.
 
 ---
 

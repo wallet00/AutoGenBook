@@ -51,9 +51,20 @@ spec:
       labels:
         app: autogenbook
     spec:
+      securityContext:
+        runAsUser: 2000
+        runAsGroup: 2000
+        fsGroup: 2000
       containers:
         - name: ui
           image: docker.io/wallet007/autogenbook:latest
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           # Přepíše ENTRYPOINT z Dockerfile (python main.py) → spustí UI server
           command: ["python", "-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
           ports:
