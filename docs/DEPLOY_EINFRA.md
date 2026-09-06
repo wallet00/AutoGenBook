@@ -239,7 +239,32 @@ kubectl -n walletzky-ns logs deploy/autogenbook-ui
 
 ---
 
-## 5. Bezpečnostní poznámky (před zveřejněním)
+## 5. Pod Security (PSA) — „restricted" upozornění
+
+Pokud Rancher hlásí `violates PodSecurity \"restricted:latest\"`, má namespace
+`walletzky-ns` úroveň `restricted` (non-root + shozené capabilities), což běžný
+Docker image (root) nesplní. Nejjednodušší odblokování — přepnout namespace na
+`baseline` (nevyžaduje non-root, image běží dál bez přestavby):
+
+```bash
+kubectl label ns walletzky-ns \
+  pod-security.kubernetes.io/enforce=baseline \
+  pod-security.kubernetes.io/audit=baseline \
+  pod-security.kubernetes.io/warn=baseline --overwrite
+```
+
+(nebo v Rancheru: Namespace → nastavení Pod Security → enforce = baseline,
+pokud na to máš práva). Pak znovu deployni deployment.
+
+> Pokud `restricted` změnit nesmíš, je potřeba image upravit na non-root
+> (nový uživatel + `USER` v Dockerfile) a doplnit do Deploymentu `securityContext`
+> (drop ALL, runAsNonRoot, runAsUser, seccomp `RuntimeDefault`,
+> `allowPrivilegeEscalation: false`) + `fsGroup` pro zápis na PVC. Ozvi se
+> a připravím ti tuto variantu (závisí na typu úložiště e-INFRA).
+
+---
+
+## 6. Bezpečnostní poznámky (před zveřejněním)
 
 - UI má **jednoduchou autentizaci sdíleným heslem**: pokud je v Seed‑u nastaven
   `AUTOGENBOOK_UI_PASSWORD`, před vstupem se objeví přihlašovací stránka
