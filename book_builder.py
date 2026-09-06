@@ -584,6 +584,18 @@ def subdivide_graph(
         frontier = next_frontier
 
 
+def _archive_section(out_dir: Path, node_key: str, content: str, section_ext: str = ".md") -> str:
+    """Uloží předchozí verzi sekce do output/history/{key}_{timestamp}{ext}."""
+    history_dir = out_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    ms = int(time.time() * 1000) % 1000
+    ts = time.strftime("%Y%m%dT%H%M%S") + f"-{ms:03d}"
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(node_key))
+    target = history_dir / f"{safe}_{ts}{section_ext}"
+    target.write_text(content, encoding="utf-8")
+    return target.name
+
+
 def generate_contents(
     llm: OpenRouterLLM,
     g: nx.DiGraph,
@@ -673,6 +685,14 @@ def generate_contents(
         node = g.nodes[node_key]
         completed += 1
 
+        # Změnový management: při hromadném běhu se zamknuté / ručně upravené uzly
+        # přeskočí, aby se zachoval jejich aktuální obsah.
+        if only_key is None and (node.get("locked") or node.get("manual_override")):
+            print(f"[GEN] {completed}/{total} SKIP (locked/manual) '{node.get('title','')}'")
+            if progress_path is not None:
+                save_graph_json(g, progress_path)
+            continue
+
         # single-node režim: zpracuj pouze zvolený uzel (přepis vynutí i u existujícího souboru)
         if only_key is not None:
             if node_key != only_key:
@@ -723,11 +743,22 @@ def generate_contents(
                 + "\nSpecific instructions for this section (highest priority):\n"
                 + custom_prompt
             ).strip()
+        gen_mode = str(nc.get("gen_mode") or "").strip()
+        use_existing = bool(nc.get("include_existing")) or (gen_mode == "enrich")
+        if gen_mode == "enrich":
+            # Inkorporace nových zdrojů: zachovej stavbu textu, obohať o nové myšlenky/citace.
+            enrich_instr = (
+                "POKYN (nejvyšší priorita): Zachovej stavbu a strukturu stávajícího textu, "
+                "ale obohať jej o myšlenky a citace z nově přiloženého zdroje / znalostní báze. "
+                "Neměň celkovou osnovu a členění sekce; nové informace doplň, rozšiř a propoj "
+                "s existujícím obsahem."
+            ).strip()
+            node_requirements = (node_requirements + "\n" + enrich_instr).strip()
         include_sources = None
         if nc.get("kb_files"):
             include_sources = [str(x) for x in nc["kb_files"] if str(x).strip()] or None
         section_draft = ""
-        if bool(nc.get("include_existing")):
+        if use_existing:
             _existing_path = node.get("content_file_path") or str((sections_dir / f"{node_key}{section_ext}").resolve())
             if Path(_existing_path).exists():
                 try:
@@ -917,8 +948,15 @@ def generate_contents(
         context_memory.apply_agent_update(memory_update, node_key, node.get("title", ""))
         context_memory.save(memory_path)
 
-        # Persist section content
+        # Persist section content (před přepisem archivuj předchozí verzi)
         section_path = sections_dir / f"{node_key}{section_ext}"
+        if section_path.exists():
+            try:
+                _prev = section_path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                _prev = ""
+            if _prev.strip() and _prev != tex:
+                _archive_section(out_dir, node_key, _prev, section_ext=section_ext)
         section_path.write_text(tex, encoding="utf-8")
         attach_content_path(g, node_key, section_path)
         if progress_path is not None:

@@ -85,11 +85,27 @@ const I18N = {
     node_modal_kb_hint: "Nevybráno = použít celou znalostní bázi.",
     node_include: "Zahrnout stávající vygenerovaný text jako kontext (přepsat/vylepšit)",
     node_rag: "Povolit Web RAG (vyhledávání na internetu) pro tuto sekci",
+    node_genmode: "Režim generování",
+    genmode_full: "Kompletní regenerace (přepsat sekci od nuly)",
+    genmode_enrich: "Inkorporovat nové zdroje / Doplnit",
+    genmode_enrich_note: "Stávající text zůstane zachován jako základ; v ‚Prioritní zdroje‘ vyber nový soubor z KB, jehož myšlenky a citace se do textu doplní.",
     node_prompt: "Specifické instrukce pro tuto kapitolu",
     node_prompt_ph: "Např: Zaměř se na S-D logiku v SaaS, vysvětli rozdíl Value-in-Exchange vs Value-in-Use na příkladu Spotify.",
     node_kb_title: "Prioritní zdroje (kb/) — MUSÍ být použity",
     node_run: "Generovat nyní",
     cancel_modal: "Zrušit",
+    lock_lock: "Zamknout proti přepisu",
+    lock_unlock: "Odemknout",
+    lock_locked: "Uzel zamčen (hromadné generování ho přeskočí)",
+    lock_unlocked: "Uzel odemčen",
+    history_btn: "Historie verzí",
+    history_title: "Historie verzí",
+    history_hint: "Předchozí verze sekce. Kliknutím obnovíš vybranou verzi (aktuální se předtím archivuje a uzel se uzamkne proti přepisu).",
+    history_restore: "Obnovit",
+    history_empty: "Zatím žádné verze. Verze vznikají při každém přepisu sekce nebo tlačítkem ‚Uložit verzi‘.",
+    history_snapshot: "Uložit verzi",
+    snapshot_ok: "Verze uložena:",
+    restored: "Verze obnovena (uzel je nyní chráněný proti přepisu)",
     running_from: "Běh probíhá — live výpis",
   },
   en: {
@@ -174,11 +190,27 @@ const I18N = {
     node_modal_kb_hint: "None selected = use the whole knowledge base.",
     node_include: "Include existing generated text as context (rewrite/improve)",
     node_rag: "Enable Web RAG (internet search) for this section",
+    node_genmode: "Generation mode",
+    genmode_full: "Full regeneration (rewrite the section from scratch)",
+    genmode_enrich: "Incorporate new sources / Supplement",
+    genmode_enrich_note: "The existing text is kept as the base; pick the new KB file under 'Priority sources' whose ideas and citations will be added to it.",
     node_prompt: "Specific instructions for this chapter",
     node_prompt_ph: "e.g. Focus on S-D logic in SaaS, explain Value-in-Exchange vs Value-in-Use using Spotify as an example.",
     node_kb_title: "Priority sources (kb/) — MUST be used",
     node_run: "Generate now",
     cancel_modal: "Cancel",
+    lock_lock: "Lock against overwrite",
+    lock_unlock: "Unlock",
+    lock_locked: "Node locked (bulk generation will skip it)",
+    lock_unlocked: "Node unlocked",
+    history_btn: "Version history",
+    history_title: "Version history",
+    history_hint: "Previous versions of the section. Click to restore (current version is archived first and the node is locked against overwrite).",
+    history_restore: "Restore",
+    history_empty: "No versions yet. Versions are created on each section overwrite or via the 'Save version' button.",
+    history_snapshot: "Save version",
+    snapshot_ok: "Version saved:",
+    restored: "Version restored (node is now protected against overwrite)",
     running_from: "Run in progress — live log",
   },
 };
@@ -703,6 +735,9 @@ function renderTree(items, depth) {
     const hasKids = n.children && n.children.length;
     const open = depth === 0;
     const size = n.exists ? `<span class="muted">(${sizeH(n.size)})</span>` : "";
+    const status = `${n.locked ? "🔒 " : (n.manual ? "✏️ " : "")}${n.exists ? "🟢" : "⚪"}`;
+    const lockBtn = `<button class="btn tiny lock" title="${n.locked ? T("lock_unlock") : T("lock_lock")}" onclick="toggleLock('${esc(n.id)}',${!!n.locked})">${n.locked ? "🔒" : "🔓"}</button>`;
+    const histBtn = (n.leaf && n.exists) ? `<button class="btn tiny" title="${T("history_btn")}" onclick="openHistory('${esc(n.id)}','${esc(n.title)}')">📜</button>` : "";
     return `
       <div class="tnode">
         <div class="trow" style="--depth:${depth}">
@@ -710,10 +745,12 @@ function renderTree(items, depth) {
             ? `<span class="caret" onclick="toggleNode(this)">${open ? "▼" : "▶"}</span>`
             : `<span class="caret leaf"></span>`}
           <span class="tlabel ${n.exists ? "link" : ""} ${hasKids ? "branch" : ""}" onclick="previewNode('${esc(n.id)}','${esc(n.title)}')">
-            ${n.exists ? "🟢" : "⚪"} ${esc(n.title || n.id)}
+            ${status} ${esc(n.title || n.id)}
           </span>
           ${size}
+          ${histBtn}
           ${n.leaf ? `<button class="btn tiny" onclick="runSingleNode('${esc(n.id)}','${esc(n.title)}')">⚡ ${T("gen_node")}</button>` : ""}
+          ${lockBtn}
         </div>
         ${hasKids ? `<div class="tkids ${open ? "" : "hidden"}">${renderTree(n.children, depth + 1)}</div>` : ""}
       </div>`;
@@ -734,7 +771,66 @@ async function previewNode(nid, title) {
     const text = html.replace(/^<pre>/, "").replace(/<\/pre>$/, "");
     document.getElementById("preview").innerHTML =
       `<h1>${esc(title || nid)}</h1>${md(text)}` +
-      `<div style="margin-top:18px"><button class="btn accent" onclick="copyNode('${esc(path)}')">${T("copy_notebook")}</button></div>`;
+      `<div style="margin-top:18px" class="row"><button class="btn accent" onclick="copyNode('${esc(path)}')">${T("copy_notebook")}</button>
+       <button class="btn" onclick="openHistory('${esc(nid)}','${esc(title)}')">📜 ${T("history_btn")}</button>
+       <button class="btn" onclick="snapshotNode('${esc(nid)}')">💾 ${T("history_snapshot")}</button></div>`;
+  } catch (e) { toast(e.message); }
+}
+async function toggleLock(nid, locked) {
+  try {
+    await apiJSON(`/api/projects/${window._pid}/structure/lock`, "PUT", { node_key: nid, locked: !locked });
+    toast(!locked ? T("lock_locked") : T("lock_unlocked"));
+    await refreshTreePanel();
+  } catch (e) { toast(e.message); }
+}
+async function refreshTreePanel() {
+  const pid = window._pid;
+  let st = { tree: [], generated: 0, total: 0 };
+  try { st = await api(`/api/projects/${pid}/structure`); } catch (e) { return; }
+  const el = document.querySelector(".tree .tree-nodes");
+  if (el) el.innerHTML = renderTree(st.tree);
+  const cnt = document.getElementById("tree-count");
+  if (cnt) cnt.textContent = `${st.generated}/${st.total}`;
+}
+async function openHistory(nid, title) {
+  const pid = window._pid;
+  let h = { files: [] };
+  try { h = await api(`/api/projects/${pid}/output/history?section=${encodeURIComponent(nid)}`); } catch (e) { toast(e.message); return; }
+  const modal = document.getElementById("modal-root");
+  if (!modal) return;
+  modal.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <h3>📜 ${T("history_title")} — ${esc(title || nid)} <span class="muted">(${esc(nid)})</span></h3>
+        <p class="muted">${T("history_hint")}</p>
+        ${h.files.length
+          ? `<div class="kb-multi">` + h.files.map((f) => `
+            <div class="file-row" style="margin-bottom:6px">
+              <span>${esc(f.name)} <span class="muted">(${sizeH(f.size)})</span></span>
+              <button class="btn tiny accent" onclick="restoreHistory('${esc(nid)}','${esc(f.name)}')">${T("history_restore")}</button>
+            </div>`).join("") + `</div>`
+          : `<div class="empty">${T("history_empty")}</div>`}
+        <div class="row" style="margin-top:12px;gap:8px">
+          <button class="btn" onclick="snapshotNode('${esc(nid)}')">💾 ${T("history_snapshot")}</button>
+          <button class="btn" onclick="closeModal()">${T("cancel_modal")}</button>
+        </div>
+      </div>
+    </div>`;
+  modal.style.display = "block";
+}
+async function restoreHistory(nid, fname) {
+  try {
+    await apiJSON(`/api/projects/${window._pid}/output/history/restore`, "POST", { section: nid, file: fname });
+    closeModal();
+    toast(T("restored"));
+    await refreshTreePanel();
+    if (document.getElementById("preview")) previewNode(nid, nid);
+  } catch (e) { toast(e.message); }
+}
+async function snapshotNode(nid) {
+  try {
+    const r = await apiJSON(`/api/projects/${window._pid}/output/history/snapshot`, "POST", { section: nid });
+    toast(T("snapshot_ok") + " " + r.name);
   } catch (e) { toast(e.message); }
 }
 async function runSingleNode(nid, title) {
@@ -747,7 +843,11 @@ async function runSingleNode(nid, title) {
     <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
       <div class="modal">
         <h3>${T("node_modal_title")} — ${esc(title || nid)} <span class="muted">(${esc(nid)})</span></h3>
-        <div class="check"><input type="checkbox" id="nmode-include" /> ${T("node_include")}</div>
+        <div class="field"><label>${T("node_genmode")}</label>
+          <label class="check"><input type="radio" name="nmode-gen" value="full" checked onclick="onGenMode()" /> ${T("genmode_full")}</label>
+          <label class="check"><input type="radio" name="nmode-gen" value="enrich" onclick="onGenMode()" /> ${T("genmode_enrich")}</label>
+          <p class="muted" id="nmode-enrich-note" style="display:none;margin:2px 0 0">${T("genmode_enrich_note")}</p>
+        </div>
         <div class="check"><input type="checkbox" id="nmode-rag" /> ${T("node_rag")}</div>
         <div class="field"><label>${T("node_prompt")}</label>
           <textarea id="nmode-prompt" rows="3" placeholder="${esc(T("node_prompt_ph"))}"></textarea></div>
@@ -765,17 +865,23 @@ async function runSingleNode(nid, title) {
     </div>`;
   modal.style.display = "block";
 }
+function onGenMode() {
+  const v = (document.querySelector('input[name="nmode-gen"]:checked') || {}).value;
+  const note = document.getElementById("nmode-enrich-note");
+  if (note) note.style.display = v === "enrich" ? "block" : "none";
+}
 function closeModal() {
   const modal = document.getElementById("modal-root");
   if (modal) { modal.innerHTML = ""; modal.style.display = "none"; }
 }
 async function runNode(nid) {
   const pid = window._pid;
+  const gen_mode = (document.querySelector('input[name="nmode-gen"]:checked') || {}).value || "full";
   const custom_prompt = document.getElementById("nmode-prompt") ? document.getElementById("nmode-prompt").value.trim() : "";
-  const include_existing = !!(document.getElementById("nmode-include") && document.getElementById("nmode-include").checked);
+  const include_existing = gen_mode === "enrich";
   const kb_files = Array.from(document.querySelectorAll(".nmode-kb:checked")).map((c) => c.value);
   const cfg = {
-    mode: "single_node", node_id: nid,
+    mode: "single_node", node_id: nid, gen_mode,
     model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
     enable_web_rag: !!(document.getElementById("nmode-rag") && document.getElementById("nmode-rag").checked),
     audit_mode: "", pdf: false, export_tex: false,
@@ -841,7 +947,7 @@ async function renderOutput() {
     return `${head}
       <div class="split">
         <div class="card tree" style="min-width:320px;max-width:560px">
-          <div class="muted" style="margin-bottom:8px">${T("tree_hint")} — ${st.generated}/${st.total}</div>
+          <div class="muted" style="margin-bottom:8px">${T("tree_hint")} — <span id="tree-count">${st.generated}/${st.total}</span></div>
           <div class="tree-nodes">${renderTree(st.tree)}</div>
         </div>
         <div class="preview" id="preview">${T("output_hint")}</div>
@@ -911,6 +1017,11 @@ async function init() {
   window.runSingleNode = runSingleNode;
   window.runNode = runNode;
   window.closeModal = closeModal;
+  window.onGenMode = onGenMode;
+  window.toggleLock = toggleLock;
+  window.openHistory = openHistory;
+  window.restoreHistory = restoreHistory;
+  window.snapshotNode = snapshotNode;
   window.renderPrompts = renderPrompts;
   window.saveProjectPrompts = saveProjectPrompts;
   window.saveGlobalPrompts = saveGlobalPrompts;

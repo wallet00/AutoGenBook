@@ -92,6 +92,27 @@ Globální `window._run` drží stav (`status`, `lines`, `es`) nezávisle na zá
 při návratu se log dosadí ze serveru (`GET .../log`) a znovu připojí SSE (`.../events`);
 přežije přepnutí záložek i obnovení stránky (F5).
 
+### Změnový management (Change Management)
+
+**1. Zamykání uzlů 🔒** — každý uzel stromu má ikonu zámku. Atributy `locked` / `manual_override`
+se ukládají do `structure_graph.json` (node attrs). Při **hromadném** běhu `generate_contents`
+(`only_key is None`) uzly s `locked` nebo `manual_override` **přeskočí** a zachovají svůj obsah.
+
+**2. Režim generování sekce (single-node modal)** — přepínač:
+- `full` — Kompletní regenerace (přepíše sekci od nuly);
+- `enrich` — Inkorporovat nové zdroje / Doplnit: stávající text se předá jako `section_draft`
+  + instrukce nejvyšší priority „Zachovej stavbu…, ale obohať o myšlenky/citace z nově
+  přiloženého zdroje“ + filtr KB na vybraný nový soubor (`include_sources`).
+Přepíná se v modalu; parametr jde env `AUTOGENBOOK_NODE_PARAMS` → `gen_mode`.
+
+**3. Verzování a archivace** — před každým přepisem sekce (generátorem i obnovením) se předchozí
+verze uloží do `output/history/{section_id}_{timestamp}.md`. V náhledu kapitoly: „📜 Historie verzí“
+(seznam + „Obnovit“, které archívuje aktuální verzi a uzel označí jako `manual_override` + `locked`)
+a „💾 Uložit verzi“ (ruční checkpoint).
+
+Nová rozhraní: `PUT /structure/lock`, `GET /output/history`, `POST /output/history/restore`,
+`POST /output/history/snapshot`.
+
 ### Nové API
 
 - `POST /api/projects/<id>/analyze-spec`

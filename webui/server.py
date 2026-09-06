@@ -356,12 +356,16 @@ def _analysis_params(meta: dict) -> dict:
 
 
 def _node_env(pid: str, cfg: dict) -> dict:
-    """Per-node parametry pro single_node běh (custom prompt, prioritní KB soubory, stávající text)."""
+    """Per-node parametry pro single_node běh (gen_mode, vlastní prompt, prioritní KB, stávající text)."""
     mode = cfg.get("mode") or "book"
     if mode != "single_node":
         return {}
     node: dict = {}
-    if bool(cfg.get("include_existing")):
+    gen_mode = str(cfg.get("gen_mode") or "").strip()
+    if gen_mode not in ("full", "enrich"):
+        gen_mode = "enrich" if bool(cfg.get("include_existing")) else "full"
+    node["gen_mode"] = gen_mode
+    if gen_mode == "enrich" or bool(cfg.get("include_existing")):
         node["include_existing"] = True
     custom = str(cfg.get("custom_prompt") or "").strip()
     if custom:
@@ -369,8 +373,6 @@ def _node_env(pid: str, cfg: dict) -> dict:
     kb_list = [str(x) for x in (cfg.get("kb_files") or []) if str(x).strip()]
     if kb_list:
         node["kb_files"] = kb_list
-    if not node:
-        return {}
     return {"AUTOGENBOOK_NODE_PARAMS": json.dumps(node, ensure_ascii=False)}
 
 
@@ -595,6 +597,8 @@ def get_structure(pid: str):
             "summary": str(nd.get("summary") or "").strip(),
             "children": [_build(c) for c in children.get(key, [])],
             "leaf": not (children.get(key) or []),
+            "locked": bool(nd.get("locked")),
+            "manual": bool(nd.get("manual_override")),
             **sec.get(key, {"exists": False, "size": 0, "mtime": 0}),
         }
 
@@ -605,6 +609,115 @@ def get_structure(pid: str):
     total = max(0, len(nodes) - 1)
     generated = sum(1 for k in sec if k in nodes)
     return {"tree": tree, "generated": generated, "total": total, "has_structure": has_graph}
+
+
+# ── Change Management: zamykání uzlů + historie verzí ─────────────
+def _graph_path(pid: str) -> Path:
+    return project_paths(pid) / "output" / "structure_graph.json"
+
+
+def _load_graph_data(pid: str) -> Optional[dict]:
+    p = _graph_path(pid)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_graph_data(pid: str, data: dict) -> None:
+    _graph_path(pid).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _history_archive(base_out: Path, node_key: str, content: str, section_ext: str = ".md") -> str:
+    """Uloží verzi sekce do output/history/{key}_{timestamp}{ext} (kompatibilní s book_builder._archive_section)."""
+    history_dir = base_out / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+    ms = int(time.time() * 1000) % 1000
+    ts = time.strftime("%Y%m%dT%H%M%S") + f"-{ms:03d}"
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(node_key))
+    target = history_dir / f"{safe}_{ts}{section_ext}"
+    target.write_text(content, encoding="utf-8")
+    return target.name
+
+
+@app.put("/api/projects/{pid}/structure/lock")
+def set_node_lock(pid: str, payload: dict):
+    _read_meta(pid)
+    node_key = str(payload.get("node_key") or "").strip()
+    locked = bool(payload.get("locked"))
+    data = _load_graph_data(pid)
+    if not data or "nodes" not in data:
+        raise HTTPException(404, "Struktura zatím neexistuje")
+    if node_key not in data["nodes"]:
+        raise HTTPException(404, f"Uzel {node_key} neexistuje")
+    data["nodes"][node_key]["locked"] = locked
+    _save_graph_data(pid, data)
+    return {"ok": True, "node_key": node_key, "locked": locked}
+
+
+@app.get("/api/projects/{pid}/output/history")
+def get_history(pid: str, section: str):
+    _read_meta(pid)
+    base = (project_paths(pid) / "output").resolve()
+    hist = base / "history"
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(section))
+    files = []
+    if hist.exists():
+        for f in hist.iterdir():
+            if f.is_file() and f.name.startswith(safe + "_") and f.suffix in (".md", ".tex"):
+                files.append({"name": f.name, "size": f.stat().st_size, "mtime": float(f.stat().st_mtime)})
+    files.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"section": section, "files": files}
+
+
+@app.post("/api/projects/{pid}/output/history/restore")
+def restore_history(pid: str, payload: dict):
+    _read_meta(pid)
+    section = str(payload.get("section") or "").strip()
+    fname = str(payload.get("file") or "").strip()
+    if "/" in fname or "\\" in fname or ".." in fname or not section:
+        raise HTTPException(400, "Neplatné parametry")
+    base = (project_paths(pid) / "output").resolve()
+    hist = (base / "history").resolve()
+    src = (hist / fname).resolve()
+    if not str(src).startswith(str(base)) or not src.is_file():
+        raise HTTPException(404, "Verze neexistuje")
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", section)
+    target = base / "sections" / f"{safe}.md"
+    # archivuj aktuální verzi, než ji přepíšeme
+    if target.exists():
+        try:
+            _cur = target.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            _cur = ""
+        if _cur.strip():
+            _history_archive(base, section, _cur)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(src.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+    # obnovený obsah je ručně upravený → ochraň ho před hromadným přepisem
+    data = _load_graph_data(pid)
+    if data and "nodes" in data and safe in data["nodes"]:
+        data["nodes"][safe]["manual_override"] = True
+        data["nodes"][safe]["locked"] = True
+        _save_graph_data(pid, data)
+    return {"ok": True, "restored": src.name}
+
+
+@app.post("/api/projects/{pid}/output/history/snapshot")
+def snapshot_history(pid: str, payload: dict):
+    _read_meta(pid)
+    section = str(payload.get("section") or "").strip()
+    if not section:
+        raise HTTPException(400, "Chybí section")
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", section)
+    base = (project_paths(pid) / "output").resolve()
+    target = base / "sections" / f"{safe}.md"
+    if not target.is_file():
+        raise HTTPException(404, "Sekce zatím není vygenerovaná")
+    name = _history_archive(base, section, target.read_text(encoding="utf-8", errors="replace"))
+    return {"ok": True, "name": name}
 
 
 # ── Prompt Management (editor promptů) ────────────────────────────
