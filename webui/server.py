@@ -373,6 +373,8 @@ def _node_env(pid: str, cfg: dict) -> dict:
     kb_list = [str(x) for x in (cfg.get("kb_files") or []) if str(x).strip()]
     if kb_list:
         node["kb_files"] = kb_list
+    if bool(cfg.get("include_child_texts")):
+        node["include_child_texts"] = True
     return {"AUTOGENBOOK_NODE_PARAMS": json.dumps(node, ensure_ascii=False)}
 
 

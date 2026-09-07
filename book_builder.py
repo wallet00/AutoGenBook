@@ -403,6 +403,34 @@ def _node_children_sorted(g: nx.DiGraph, node: str) -> List[str]:
     return sort_node_keys(children)
 
 
+def _collect_child_texts(
+    g: nx.DiGraph,
+    node_key: str,
+    sections_dir: Path,
+    section_ext: str = ".md",
+    max_chars: int = 16000,
+) -> str:
+    """Vrátí texty všech potomků daného uzlu (kromě kořene samotného), oddělené nadpisy."""
+    _child_keys = _branch_keys_in_order(g, node_key)[1:]
+    parts: List[str] = []
+    total = 0
+    for _ck in _child_keys:
+        _cp = Path(sections_dir) / f"{_ck}{section_ext}"
+        if _cp.is_file():
+            try:
+                _ct = _decode_text_bytes(_cp.read_bytes()).strip()
+            except Exception:
+                _ct = ""
+            if _ct:
+                _ctitle = g.nodes[_ck].get("title", _ck)
+                _part = f"### {_ctitle}\n\n{_ct}"
+                parts.append(_part)
+                total += len(_part)
+                if total > max_chars:
+                    break
+    return "\n\n".join(parts)
+
+
 def _is_leaf(g: nx.DiGraph, node: str) -> bool:
     return g.out_degree(node) == 0
 
@@ -801,6 +829,28 @@ def generate_contents(
                     _existing = ""
                 if _existing.strip():
                     section_draft = _existing.strip()
+
+        # Volitelně (single-node na rodičovském uzlu): zahrnout do kontextu texty podkapitol,
+        # aby se úvod kapitoly psal na jejich základě.
+        if target_mode == "single" and bool(nc.get("include_child_texts")) and _node_children_sorted(g, node_key):
+            _child_context = _collect_child_texts(g, node_key, sections_dir, section_ext)
+            if _child_context:
+                _prev_orig = previous_sections if (previous_sections.strip() and previous_sections != "(none)") else ""
+                _prev_block = (
+                    "Below are the CONTENTS of the sub-chapters under this chapter's heading. "
+                    "Use them as the base when writing this chapter's introduction/overview.\n\n"
+                    + _child_context
+                )
+                if _prev_orig:
+                    previous_sections = _prev_block + "\n\n---\n\nEarlier sections for continuity:\n" + _prev_orig
+                else:
+                    previous_sections = _prev_block
+                _child_instr = (
+                    "\nPOKYN (nejvyšší priorita): Tato kapitola je úvod/overview svých podkapitol. "
+                    "Začni úvodním odstavcem ve tvaru „V této kapitole se seznámíme s …“, který vychází "
+                    "z obsahu podkapitol níže. Poté podkapitoly stručně představ a navaž na ně."
+                ).strip()
+                node_requirements = (node_requirements + "\n" + _child_instr).strip()
 
         retrieved_context = ""
         query = f"{book_title}\n{book_summary}\n{node.get('title','')}\n{node.get('summary','')}"
@@ -1923,7 +1973,7 @@ def _apply_iso690_citations_v2(text: str, kb: Optional[KnowledgeBase], out_dir: 
 _apply_iso690_citations = _apply_iso690_citations_v2
 
 
-def _apply_iso690_citations_v3(text: str, kb: Optional[KnowledgeBase], out_dir: Path) -> str:
+def _apply_iso690_citations_v3(text: str, kb: Optional[KnowledgeBase], out_dir: Path, *, markdown: bool = False) -> str:
     def _excerpt_from_text(raw: str, max_words: int = 12, max_chars: int = 120) -> str:
         cleaned = re.sub(r"\s+", " ", (raw or "").strip())
         if not cleaned:
@@ -2207,13 +2257,18 @@ def _apply_iso690_citations_v3(text: str, kb: Optional[KnowledgeBase], out_dir: 
     text = re.sub(r"\\cite[a-zA-Z*]*\{([^}]+)\}", _replace_cite, text)
     text = re.sub(r"\\footnote\{(.*?)\}", _replace_footnote, text, flags=re.S)
 
-    has_refs = re.search(
-        r"\\chapter\\*\\{(?:\\\\bibname|[^}]*literatura[^}]*)\\}",
-        text,
-        flags=re.IGNORECASE,
-    )
+    if markdown:
+        has_refs = bool(
+            re.search(r"^#+\s+(?:literatura|references|bibliography|bibname)\s*$", text, flags=re.I | re.M)
+        )
+    else:
+        has_refs = re.search(
+            r"\\chapter\\*\\{(?:\\\\bibname|[^}]*literatura[^}]*)\\}",
+            text,
+            flags=re.IGNORECASE,
+        )
     if ordered_entries and not has_refs:
-        items = []
+        item_lines = []
         for entry in ordered_entries:
             num = citation_numbers.get(_entry_key(entry), 0)
             source_path = entry.get("source_path", "") or "unknown"
@@ -2229,16 +2284,21 @@ def _apply_iso690_citations_v3(text: str, kb: Optional[KnowledgeBase], out_dir: 
             if excerpt:
                 parts.append(f"\"{excerpt}\"")
             line = ", ".join(parts) + "."
-            items.append(f"\\item[\\textbf{{[{num}]}}] {line}")
-        literature_title = "\\bibname"
-        literature = (
-            f"\n\\chapter*{{{literature_title}}}\n"
-            f"\\addcontentsline{{toc}}{{chapter}}{{{literature_title}}}\n"
-            "\\begin{enumerate}\n"
-            + "\n".join(items)
-            + "\n\\end{enumerate}\n"
-        )
-        text = text.replace("\\end{document}", literature + "\n\\end{document}")
+            item_lines.append((num, line))
+        if markdown:
+            literature = "\n## Literatura\n\n" + "\n".join(f"{num}. {line}" for num, line in item_lines) + "\n"
+            text = text.rstrip() + "\n" + literature
+        else:
+            literature_title = "\\bibname"
+            items = [f"\\item[\\textbf{{[{num}]}}] {line}" for num, line in item_lines]
+            literature = (
+                f"\n\\chapter*{{{literature_title}}}\n"
+                f"\\addcontentsline{{toc}}{{chapter}}{{{literature_title}}}\n"
+                "\\begin{enumerate}\n"
+                + "\n".join(items)
+                + "\n\\end{enumerate}\n"
+            )
+            text = text.replace("\\end{document}", literature + "\n\\end{document}")
 
     return text
 
@@ -4657,7 +4717,24 @@ def build_markdown_document(g: nx.DiGraph, out_dir: Path) -> Path:
 
     md_filename = safe_filename(title) + ".md"
     md_path = out_dir / md_filename
-    md_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    full = "\n".join(lines).rstrip() + "\n"
+    # Citace: převeď \\cite{...} na číselné odkazy + oddíl Literatura (Markdown),
+    # aby se v MD výstupu neobjevovaly surové LaTeX příkazy \\cite.
+    try:
+        full = _apply_iso690_citations(full, None, out_dir, markdown=True)
+    except Exception:
+        pass
+    # Odstraň případné nerozlišené/zbytkové LaTeX značky pro Markdown výstup.
+    def _md_footnote(match):
+        body = match.group(1).strip()
+        if not body:
+            return ""
+        cleaned = re.sub(r"\s+", " ", body)
+        return " (" + cleaned + ")"
+
+    full = re.sub(r"\\cite[a-zA-Z*]*(?:\[[^\]]*\]\s*)*\{[^}]*\}", "", full)
+    full = re.sub(r"\\footnote\{(.*?)\}", _md_footnote, full, flags=re.S)
+    md_path.write_text(full, encoding="utf-8")
     return md_path
 
 

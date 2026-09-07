@@ -43,8 +43,13 @@ const I18N = {
     audit_off: "Vypnut",
     audit_warn: "Varovat",
     audit_strict: "Přísný",
-    pdf: "Generovat PDF",
+    pdf: "Generovat i PDF (jen při LaTeX)",
     export_tex: "Export TeX/PDF (pandoc)",
+    out_format: "Výstupní formát",
+    out_md: "Markdown (doporučeno)",
+    out_tex: "LaTeX (TeX + reference)",
+    out_md_hint: "Vznikne .md dokument s číselnými odkazy a oddílem „Literatura“. PDF se negeneruje.",
+    out_tex_hint: "Vznikne .tex + seznam literatury (reference). PDF se vygeneruje, jen pokud zaškrtneš níže.",
     run: "Spustit generování",
     running: "Probíhá…",
     cancel: "Zrušit běh",
@@ -81,6 +86,8 @@ const I18N = {
     outline_run: "1 · Vygenerovat pouze strukturu (Outline)",
     full_run: "2 · Generovat kompletní knihu",
     gen_node: "Generovat tento uzel",
+    node_childctx: "Zahrnout do kontextu texty podkapitol",
+    node_childctx_hint: "Úvod kapitoly se napíše na základě obsahu podkapitol (začne např. „V této kapitole se seznámíme…“).",
     edit_btn: "Upravit",
     edit_cancel: "Zrušit",
     edit_hint: "Uložení archivuje předchozí verzi a označí uzel jako ručně upravený (✏️).",
@@ -174,8 +181,13 @@ const I18N = {
     audit_off: "Off",
     audit_warn: "Warn",
     audit_strict: "Strict",
-    pdf: "Generate PDF",
+    pdf: "Also build PDF (LaTeX only)",
     export_tex: "Export TeX/PDF (pandoc)",
+    out_format: "Output format",
+    out_md: "Markdown (recommended)",
+    out_tex: "LaTeX (TeX + references)",
+    out_md_hint: "Produces a .md document with numbered citations and a “Literature” section. No PDF is built.",
+    out_tex_hint: "Produces .tex plus a reference list. PDF is built only if checked below.",
     run: "Start generation",
     running: "Running…",
     cancel: "Cancel run",
@@ -212,6 +224,8 @@ const I18N = {
     outline_run: "1 · Generate structure only (Outline)",
     full_run: "2 · Generate full book",
     gen_node: "Generate this node",
+    node_childctx: "Include sub-chapter texts in the context",
+    node_childctx_hint: "The chapter intro is then written from the sub-chapter content (e.g. starts with “In this chapter we will learn about…”).",
     edit_btn: "Edit",
     edit_cancel: "Cancel",
     edit_hint: "Saving archives the previous version and marks the node as manually edited (✏️).",
@@ -532,8 +546,14 @@ const viewMap = {
           <option value="warn">${T("audit_warn")}</option>
           <option value="strict">${T("audit_strict")}</option>
         </select></div></div>
-      <div class="check"><input type="checkbox" id="cfg-pdf" checked /> ${T("pdf")}</div>
-      <div class="check"><input type="checkbox" id="cfg-tex" /> ${T("export_tex")}</div>
+      <div class="field"><label>${T("out_format")}</label>
+        <select id="cfg-format" class="btn" onchange="onOutFormat()">
+          <option value="markdown">${T("out_md")}</option>
+          <option value="latex">${T("out_tex")}</option>
+        </select>
+        <span class="muted" id="cfg-format-hint" style="display:block;margin-top:4px">${T("out_md_hint")}</span>
+      </div>
+      <div class="check" id="cfg-pdf-opt" style="display:none"><input type="checkbox" id="cfg-pdf" /> ${T("pdf")}</div>
       <div class="row" style="margin-top:14px;gap:10px;flex-wrap:wrap">
         <button class="btn primary" onclick="startRun('outline_only')">🧭 ${T("outline_run")}</button>
         <button class="btn primary" onclick="startRun('book')">📖 ${T("full_run")}</button>
@@ -673,15 +693,24 @@ function setRunRunning() {
   window._run.lines = [];
   if (window._proj) window._proj.run_status = "running";
 }
+function onOutFormat() {
+  const f = document.getElementById("cfg-format") ? document.getElementById("cfg-format").value : "markdown";
+  const pdfOpt = document.getElementById("cfg-pdf-opt");
+  const hint = document.getElementById("cfg-format-hint");
+  if (pdfOpt) pdfOpt.style.display = f === "latex" ? "block" : "none";
+  if (hint) hint.textContent = f === "latex" ? T("out_tex_hint") : T("out_md_hint");
+}
 async function startRun(mode) {
   const pid = window._pid;
+  const out_format = (document.getElementById("cfg-format") && document.getElementById("cfg-format").value) || "markdown";
+  const wantPdf = !!(document.getElementById("cfg-pdf") && document.getElementById("cfg-pdf").checked);
   const cfg = {
     mode: mode || "book",
     model: document.getElementById("cfg-model").value.trim() || window._model || "",
     enable_web_rag: document.getElementById("cfg-rag").checked,
     audit_mode: document.getElementById("cfg-audit").value,
-    pdf: document.getElementById("cfg-pdf").checked,
-    export_tex: document.getElementById("cfg-tex").checked,
+    pdf: out_format === "latex" && wantPdf,
+    export_tex: out_format === "latex",
   };
   window._model = cfg.model;
   if (cfg.enable_web_rag && !(window._tavily || {}).configured) {
@@ -926,8 +955,21 @@ async function refreshTreePanel() {
   try { st = await api(`/api/projects/${pid}/structure`); } catch (e) { return; }
   const el = document.querySelector(".tree .tree-nodes");
   if (el) el.innerHTML = renderTree(st.tree);
+  window._tree = st.tree;
   const cnt = document.getElementById("tree-count");
   if (cnt) cnt.textContent = `${st.generated}/${st.total}`;
+}
+function treeFind(items, id) {
+  for (const nn of (items || [])) {
+    if (nn.id === id) return nn;
+    const r = treeFind(nn.children, id);
+    if (r) return r;
+  }
+  return null;
+}
+function nodeHasChildren(nid) {
+  const nn = treeFind(window._tree, nid);
+  return !!(nn && nn.children && nn.children.length);
 }
 async function openHistory(nid, title) {
   const pid = window._pid;
@@ -1043,6 +1085,8 @@ async function runSingleNode(nid, title) {
         </div>
         <div class="check"><input type="checkbox" id="nmode-rag" onchange="updateNodeRagStatus()" /> ${T("node_rag")} <span id="nrag-status"></span></div>
         <div class="rag-warn" id="nrag-warn">⚠️ ${T("rag_warn_before")}</div>
+        ${nodeHasChildren(nid) ? `
+        <div class="check"><input type="checkbox" id="nmode-childctx" checked /> ${T("node_childctx")}<br/><span class="muted" style="font-weight:normal">${T("node_childctx_hint")}</span></div>` : ""}
         <div class="field"><label>${T("node_prompt")}</label>
           <textarea id="nmode-prompt" rows="3" placeholder="${esc(T("node_prompt_ph"))}"></textarea></div>
         <div class="field"><label>${T("node_kb_title")}</label>
@@ -1073,6 +1117,7 @@ async function runNode(nid) {
   const gen_mode = (document.querySelector('input[name="nmode-gen"]:checked') || {}).value || "full";
   const custom_prompt = document.getElementById("nmode-prompt") ? document.getElementById("nmode-prompt").value.trim() : "";
   const include_existing = gen_mode === "enrich";
+  const include_child_texts = !!(document.getElementById("nmode-childctx") && document.getElementById("nmode-childctx").checked);
   const kb_files = Array.from(document.querySelectorAll(".nmode-kb:checked")).map((c) => c.value);
   const ragOn = !!(document.getElementById("nmode-rag") && document.getElementById("nmode-rag").checked);
   if (ragOn && !(window._tavily || {}).configured) {
@@ -1083,7 +1128,7 @@ async function runNode(nid) {
     model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
     enable_web_rag: ragOn,
     audit_mode: "", pdf: false, export_tex: false,
-    include_existing, custom_prompt, kb_files,
+    include_existing, custom_prompt, kb_files, include_child_texts,
   };
   closeModal();
   try {
@@ -1141,6 +1186,7 @@ async function renderOutput() {
       <button class="btn" onclick="viewRunLog()">📄 ${T("run_log")}</button></div>`;
   let st = { tree: [], has_structure: false, generated: 0, total: 0 };
   try { st = await api(`/api/projects/${pid}/structure`); } catch (e) {}
+  window._tree = st.tree;
   if (st.has_structure && st.tree.length) {
     return `${head}
       <div class="split">
@@ -1213,6 +1259,8 @@ async function init() {
   window.analyzeSpec = analyzeSpec;
   window.saveParams = saveParams;
   window.runSingleNode = runSingleNode;
+  window.nodeHasChildren = nodeHasChildren;
+  window.onOutFormat = onOutFormat;
   window.runNode = runNode;
   window.closeModal = closeModal;
   window.editNode = editNode;
