@@ -356,9 +356,9 @@ def _analysis_params(meta: dict) -> dict:
 
 
 def _node_env(pid: str, cfg: dict) -> dict:
-    """Per-node parametry pro single_node běh (gen_mode, vlastní prompt, prioritní KB, stávající text)."""
+    """Per-node parametry pro single_node/branch běh (gen_mode, vlastní prompt, prioritní KB, stávající text)."""
     mode = cfg.get("mode") or "book"
-    if mode != "single_node":
+    if mode not in ("single_node", "branch"):
         return {}
     node: dict = {}
     gen_mode = str(cfg.get("gen_mode") or "").strip()

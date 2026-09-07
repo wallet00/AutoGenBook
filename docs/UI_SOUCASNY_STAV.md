@@ -102,6 +102,7 @@ Dashboard
 - **Náhled výstupu** + **„📄 Běhový log”**.
 - **Editovatelný náhled uzlu**: v náhledu sekce (strom) tlačítko **✏️ Upravit** přepne na textarea; **💾 Uložit** zapíše obsah do `sections/<uzel>.md`, archivuje předchozí verzi (historie) a označí uzel jako ručně upravený (✏️) — chráněný proti hromadnému přepisu. Endpoint `PUT /api/projects/{pid}/output/section`.
 - **Úvod kapitoly z textů podkapitol**: v modálu pro jeden uzel (jen když má uzel potomky) je zaškrtávátko **„Zahrnout do kontextu texty podkapitol”**. Při single-node běhu se obsah podkapitol vloží do kontextu (`_collect_child_texts`) a do vyžádaných pravidel se přidá pokyn začít „V této kapitole se seznámíme s …”.
+- **Větev = stejný modál jako jeden uzel**: generování větve (🔄) nyní otevírá stejný modál jako generování jednoho uzlu — režim `full`/`enrich`, vlastní prompt, prioritní KB soubory, „zahrnout texty podkapitol” i **Web RAG** (s indikátorem Tavily/Upozorněním). Backend aplikuje `node_config` i pro `target_mode == "branch"` (`_node_env` + `generate_contents`).
 - **Výstupní formát v záložce Generování**: výběr **Markdown (doporučeno)** / **LaTeX**. Markdown = `.md` s číselnými odkazy + oddíl „Literatura” (žádné surové `\cite`, žádné PDF). LaTeX = `.tex` + reference; PDF jen při zaškrtnutí „Generovat i PDF”. Mapuje se na `--export-tex` + `--no-pdf`/PDF v `_build_argv`.
 
 ---

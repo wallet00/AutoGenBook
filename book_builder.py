@@ -796,7 +796,7 @@ def generate_contents(
 
         # Per-node konfigurace (single-node z UI): vlastní prompt, prioritní zdroje,
         # případně použití stávajícího textu jako základu (sekci se přepíše/vylepší).
-        nc: Dict[str, Any] = (node_config or {}) if target_mode == "single" else {}
+        nc: Dict[str, Any] = (node_config or {}) if target_mode in ("single", "branch") else {}
         node_requirements = additional_requirements
         custom_prompt = str(nc.get("custom_prompt") or "").strip()
         if custom_prompt:
@@ -832,7 +832,7 @@ def generate_contents(
 
         # Volitelně (single-node na rodičovském uzlu): zahrnout do kontextu texty podkapitol,
         # aby se úvod kapitoly psal na jejich základě.
-        if target_mode == "single" and bool(nc.get("include_child_texts")) and _node_children_sorted(g, node_key):
+        if target_mode in ("single", "branch") and bool(nc.get("include_child_texts")) and _node_children_sorted(g, node_key):
             _child_context = _collect_child_texts(g, node_key, sections_dir, section_ext)
             if _child_context:
                 _prev_orig = previous_sections if (previous_sections.strip() and previous_sections != "(none)") else ""

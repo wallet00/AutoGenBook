@@ -63,6 +63,25 @@ def test_node_env_maps_include_child_texts():
     assert "include_child_texts" not in json.loads(env2["AUTOGENBOOK_NODE_PARAMS"])
 
 
+def test_node_env_applies_to_branch_mode():
+    from webui import server as S
+    env = S._node_env("pid", {
+        "mode": "branch", "gen_mode": "enrich",
+        "custom_prompt": "Piš pěkně", "include_child_texts": True,
+        "kb_files": ["a.pdf"]})
+    params = json.loads(env["AUTOGENBOOK_NODE_PARAMS"])
+    assert params["gen_mode"] == "enrich"
+    assert params["include_existing"] is True
+    assert params["custom_prompt"] == "Piš pěkně"
+    assert params["include_child_texts"] is True
+    assert params["kb_files"] == ["a.pdf"]
+    # režim book (hromadný) parametry nenastavuje
+    import os
+    os.environ.pop("AUTOGENBOOK_NODE_PARAMS", None)
+    env_book = S._node_env("pid", {"mode": "book", "gen_mode": "enrich"})
+    assert env_book == {}
+
+
 def test_build_argv_book_output_format(tmp_path, monkeypatch):
     import os
     os.environ.setdefault("AUTOGENBOOK_UI_PASSWORD", "x")

@@ -103,6 +103,7 @@ const I18N = {
     prom_reset: "Reset na výchozí",
     prom_save: "Uložit změny",
     node_modal_title: "⚡ Vygenerovat tento uzel",
+    branch_modal_title: "🔄 Generování větve (uzel + podkapitoly)",
     node_modal_kb_hint: "Nevybráno = použít celou znalostní bázi.",
     node_include: "Zahrnout stávající vygenerovaný text jako kontext (přepsat/vylepšit)",
     node_rag: "Povolit Web RAG (vyhledávání na internetu) pro tuto sekci",
@@ -241,6 +242,7 @@ const I18N = {
     prom_reset: "Reset to default",
     prom_save: "Save changes",
     node_modal_title: "⚡ Generate this node",
+    branch_modal_title: "🔄 Generate branch (node + sub-chapters)",
     node_modal_kb_hint: "None selected = use the whole knowledge base.",
     node_include: "Include existing generated text as context (rewrite/improve)",
     node_rag: "Enable Web RAG (internet search) for this section",
@@ -1013,17 +1015,7 @@ async function snapshotNode(nid) {
   } catch (e) { toast(e.message); }
 }
 async function runBranch(nid, title) {
-  if (!confirm(T("branch_confirm") + "\n\n" + (title || nid))) return;
-  const pid = window._pid;
-  const cfg = {
-    mode: "branch", node_id: nid,
-    model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
-  };
-  try {
-    await apiJSON(`/api/projects/${pid}/run`, "POST", cfg);
-    setRunRunning();
-    await renderProjectTabs("run");
-  } catch (e) { toast(e.message); }
+  await openNodeModal(nid, title, "branch");
 }
 function openTranslate(nid, title) {
   const a = (window._proj && window._proj.analysis) || {};
@@ -1069,15 +1061,21 @@ async function doTranslate(nid) {
   }
 }
 async function runSingleNode(nid, title) {
+  await openNodeModal(nid, title, "single_node");
+}
+async function openNodeModal(nid, title, mode) {
   const pid = window._pid;
   let kbFiles = [];
   try { kbFiles = await api(`/api/projects/${pid}/kb`); } catch (e) {}
   const modal = document.getElementById("modal-root");
   if (!modal) return;
+  const isBranch = mode === "branch";
+  const headTitle = isBranch ? T("branch_modal_title") : T("node_modal_title");
+  const runLabel = isBranch ? T("run_branch") + " ▶" : T("node_run");
   modal.innerHTML = `
     <div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
       <div class="modal">
-        <h3>${T("node_modal_title")} — ${esc(title || nid)} <span class="muted">(${esc(nid)})</span></h3>
+        <h3>${headTitle} — ${esc(title || nid)} <span class="muted">(${esc(nid)})</span></h3>
         <div class="field"><label>${T("node_genmode")}</label>
           <label class="check"><input type="radio" name="nmode-gen" value="full" checked onclick="onGenMode()" /> ${T("genmode_full")}</label>
           <label class="check"><input type="radio" name="nmode-gen" value="enrich" onclick="onGenMode()" /> ${T("genmode_enrich")}</label>
@@ -1096,7 +1094,7 @@ async function runSingleNode(nid, title) {
             : `<div class="muted">—</div>`}</div>
         </div>
         <div class="row" style="margin-top:14px;gap:10px">
-          <button class="btn primary" onclick="runNode('${esc(nid)}')">${T("node_run")}</button>
+          <button class="btn primary" onclick="runNode('${esc(nid)}','${mode}')">${runLabel}</button>
           <button class="btn" onclick="closeModal()">${T("cancel_modal")}</button>
         </div>
       </div>
@@ -1112,8 +1110,9 @@ function closeModal() {
   const modal = document.getElementById("modal-root");
   if (modal) { modal.innerHTML = ""; modal.style.display = "none"; }
 }
-async function runNode(nid) {
+async function runNode(nid, mode) {
   const pid = window._pid;
+  mode = mode || "single_node";
   const gen_mode = (document.querySelector('input[name="nmode-gen"]:checked') || {}).value || "full";
   const custom_prompt = document.getElementById("nmode-prompt") ? document.getElementById("nmode-prompt").value.trim() : "";
   const include_existing = gen_mode === "enrich";
@@ -1124,7 +1123,7 @@ async function runNode(nid) {
     if (!confirm(T("rag_warn_confirm"))) return;
   }
   const cfg = {
-    mode: "single_node", node_id: nid, gen_mode,
+    mode, node_id: nid, gen_mode,
     model: (document.getElementById("cfg-model") ? document.getElementById("cfg-model").value.trim() : "") || window._model || "",
     enable_web_rag: ragOn,
     audit_mode: "", pdf: false, export_tex: false,
