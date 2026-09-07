@@ -781,6 +781,37 @@ def translate_node(pid: str, payload: dict):
     return {"ok": True, "content": translated, "path": path}
 
 
+@app.put("/api/projects/{pid}/output/section")
+def save_section(pid: str, payload: dict):
+    """Uloží ručně upravený obsah sekce (editovatelný náhled)."""
+    _read_meta(pid)
+    node_id = str(payload.get("node_id") or "").strip().replace(".", "-")
+    content = str(payload.get("content") or "")
+    if not node_id:
+        raise HTTPException(400, "Chybí node_id")
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", node_id)
+    base = (project_paths(pid) / "output").resolve()
+    target = (base / "sections" / f"{safe}.md").resolve()
+    if not str(target).startswith(str(base)):
+        raise HTTPException(400, "Neplatná cesta")
+    # před přepisem archivuj aktuální verzi
+    if target.is_file():
+        try:
+            prev = target.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            prev = ""
+        if prev.strip() and prev != content:
+            _history_archive(base, node_id, prev)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    # ruční editace → označ jako ručně upravenou (chrání proti hromadnému přepisu)
+    data = _load_graph_data(pid)
+    if data and node_id in data.get("nodes", {}):
+        data["nodes"][node_id]["manual_override"] = True
+        _save_graph_data(pid, data)
+    return {"ok": True, "path": str(target.relative_to(base))}
+
+
 # ── Prompt Management (editor promptů) ────────────────────────────
 from autogenbook.prompts.book_loader import load_book_prompts  # noqa: E402
 

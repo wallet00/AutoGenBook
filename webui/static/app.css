@@ -108,6 +108,21 @@ h3 { font-size: 15px; margin: 0 0 10px; }
   font-size: 13px;
   line-height: 1.4;
 }
+.node-editor {
+  width: 100%;
+  min-height: 60vh;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: var(--fg, #111);
+  resize: vertical;
+  tab-size: 2;
+  white-space: pre-wrap;
+}
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }

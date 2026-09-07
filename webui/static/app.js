@@ -81,6 +81,10 @@ const I18N = {
     outline_run: "1 · Vygenerovat pouze strukturu (Outline)",
     full_run: "2 · Generovat kompletní knihu",
     gen_node: "Generovat tento uzel",
+    edit_btn: "Upravit",
+    edit_cancel: "Zrušit",
+    edit_hint: "Uložení archivuje předchozí verzi a označí uzel jako ručně upravený (✏️).",
+    edited_saved: "Obsah uložen",
     copy_notebook: "Zkopírovat jako podklad pro NotebookLM",
     copied: "Zkopírováno do schránky",
     no_structure: "Zatím nebyla vygenerována struktura. Spusť krok 1 (Outline).",
@@ -208,6 +212,10 @@ const I18N = {
     outline_run: "1 · Generate structure only (Outline)",
     full_run: "2 · Generate full book",
     gen_node: "Generate this node",
+    edit_btn: "Edit",
+    edit_cancel: "Cancel",
+    edit_hint: "Saving archives the previous version and marks the node as manually edited (✏️).",
+    edited_saved: "Content saved",
     copy_notebook: "Copy as NotebookLM source",
     copied: "Copied to clipboard",
     no_structure: "No structure generated yet. Run step 1 (Outline).",
@@ -870,12 +878,40 @@ async function previewNode(nid, title) {
   try {
     const html = await api(`/api/projects/${window._pid}/output/file?path=${encodeURIComponent(path)}`);
     const text = html.replace(/^<pre>/, "").replace(/<\/pre>$/, "");
+    window._previewRaw = text; window._previewNid = nid; window._previewTitle = title || nid;
     document.getElementById("preview").innerHTML =
       `<h1>${esc(title || nid)}</h1>${md(text)}` +
-      `<div style="margin-top:18px" class="row"><button class="btn accent" onclick="copyNode('${esc(path)}')">${T("copy_notebook")}</button>
-       <button class="btn" onclick="openHistory('${esc(nid)}','${esc(title)}')">📜 ${T("history_btn")}</button>
-       <button class="btn" onclick="snapshotNode('${esc(nid)}')">💾 ${T("history_snapshot")}</button></div>`;
+      `<div style="margin-top:18px" class="row">` +
+      `<button class="btn accent" onclick="editNode('${esc(nid)}','${esc(title || nid)}')">✏️ ${T("edit_btn")}</button>` +
+      `<button class="btn accent" onclick="copyNode('${esc(path)}')">${T("copy_notebook")}</button>` +
+      `<button class="btn" onclick="openHistory('${esc(nid)}','${esc(title || nid)}')">📜 ${T("history_btn")}</button>` +
+      `<button class="btn" onclick="snapshotNode('${esc(nid)}')">💾 ${T("history_snapshot")}</button></div>`;
   } catch (e) { toast(e.message); }
+}
+function editNode(nid, title) {
+  const raw = (window._previewNid === nid && window._previewRaw != null) ? window._previewRaw : "";
+  const preview = document.getElementById("preview");
+  if (!preview) return;
+  preview.innerHTML =
+    `<h1>${esc(title || nid)}</h1>` +
+    `<textarea id="node-editor" class="node-editor" spellcheck="false">${esc(raw)}</textarea>` +
+    `<div class="row" style="margin-top:10px;gap:8px">` +
+    `<button class="btn primary" onclick="saveNodeEdit('${esc(nid)}','${esc(title || nid)}')">💾 ${T("save")}</button>` +
+    `<button class="btn" onclick="previewNode('${esc(nid)}','${esc(title || nid)}')">✖ ${T("edit_cancel")}</button>` +
+    `<span class="muted">${T("edit_hint")}</span></div>`;
+}
+async function saveNodeEdit(nid, title) {
+  const ta = document.getElementById("node-editor");
+  const content = ta ? ta.value : "";
+  const btn = document.querySelector('#preview button[onclick^="saveNodeEdit"]');
+  if (btn) btn.disabled = true;
+  try {
+    await apiJSON(`/api/projects/${window._pid}/output/section`, "PUT", { node_id: nid, content });
+    toast(T("edited_saved"));
+    window._previewRaw = content;
+    await refreshTreePanel();
+    previewNode(nid, title);
+  } catch (e) { toast(e.message); if (btn) btn.disabled = false; }
 }
 async function toggleLock(nid, locked) {
   try {
@@ -1179,6 +1215,8 @@ async function init() {
   window.runSingleNode = runSingleNode;
   window.runNode = runNode;
   window.closeModal = closeModal;
+  window.editNode = editNode;
+  window.saveNodeEdit = saveNodeEdit;
   window.onGenMode = onGenMode;
   window.toggleLock = toggleLock;
   window.openHistory = openHistory;
