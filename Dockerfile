@@ -1,5 +1,6 @@
 # AutoGenBook — Docker image
-# Runs the AutoGenBook CLI inside a container (Linux) on any host (Windows/macOS/Linux).
+# Defaultně spouští webové UI (uvicorn, port 8080). CLI je volatelné explicitně
+# (docker run IMAGE main.py --mode ...). Běží na libovolném hostu (Windows/macOS/Linux).
 FROM python:3.12-slim
 
 # Non-interactive: the CLI uses prompts; we force non-interactive mode via env in run.
@@ -51,4 +52,12 @@ ENV HOME=/home/appuser
 ENV AUTOGENBOOK_NONINTERACTIVE=1 \
     AUTOGENBOOK_ASSUME_YES=1
 
-ENTRYPOINT ["python", "main.py"]
+# ── Výchozí start = Web UI (uvicorn) ──────────────────────────────
+# Image při defaultním spuštění (i bez přepisu command, např. workload z Rancher
+# formuláře) nastartuje webový server, nikoli CLI s výchozími argumenty, které by
+# spadlo na chybějícím /app/book_input.txt a nezapisovatelném /app/out.
+#
+# CLI zůstává dostupné explicitně např.:
+#   docker run IMAGE main.py --mode book --input /app/input/book_input.txt --out-dir /app/projects/out
+ENTRYPOINT ["python"]
+CMD ["-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]

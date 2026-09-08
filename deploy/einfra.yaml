@@ -65,7 +65,8 @@ spec:
               drop: ["ALL"]
             seccompProfile:
               type: RuntimeDefault
-          # Přepíše ENTRYPOINT z Dockerfile (python main.py) → spustí UI server
+          # Volitelný přepis: image už defaultně spouští UI (uvicorn).
+          # Lze ponechat, nebo smazat — image se i tak spustí jako UI.
           command: ["python", "-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
           ports:
             - containerPort: 8080

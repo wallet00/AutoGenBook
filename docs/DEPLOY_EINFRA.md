@@ -103,8 +103,12 @@ spec:
 
 ### 2.3 Deployment
 
-**Důležité:** Dockerfile má `ENTRYPOINT ["python", "main.py"]` — v K8s ho musíš
-přepsat, aby se spustilo webové UI, ne CLI. Nastav `command` na spuštění uvicornu:
+**Aktualizace:** Dockerfile nyní defaultně spouští **webové UI** (uvicorn) —
+`ENTRYPOINT ["python"]` + `CMD ["-m", "uvicorn", "webui.server:app", …]`.
+Tzn. workload vytvořený z Rancher **formuláře bez `command`** už nastartuje UI, ne CLI
+(s CLI defaulty už nepadá na `/app/book_input.txt` / `/app/out`). Přepis `command` níže je
+volitelný/neškodný; necháš-li ho pryč, image se spustí výchozím CMD = UI. CLI zůstává
+volatelné explicitně: `docker run IMAGE main.py --mode …`.
 
 ```yaml
 apiVersion: apps/v1
@@ -125,7 +129,7 @@ spec:
       containers:
         - name: ui
           image: <REGISTRY>/autogenbook:latest
-          # Přepíše ENTRYPOINT z Dockerfile (python main.py) → spustí UI server
+          # Volitelný přepis (image defaultně spouští UI); lze ponechat i smazat.
           command: ["python", "-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
           ports:
             - containerPort: 8080

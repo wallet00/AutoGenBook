@@ -14,8 +14,8 @@ services:
   ui:
     build: .
     image: autogenbook:latest
-    entrypoint: []
-    command: ["python", "-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
+    # Výchozí CMD image = web UI (uvicorn); zde jen upřesníme vlastní (bez entrypoint:[], který přebírá z image).
+    command: ["-m", "uvicorn", "webui.server:app", "--host", "0.0.0.0", "--port", "8080"]
     ports:
       - "8082:8080"
     volumes:
@@ -28,6 +28,8 @@ services:
   cli:
     build: .
     image: autogenbook:latest
+    # CLI vyžaduje explicitní vstupní bod (image default = web UI).
+    entrypoint: ["python", "main.py"]
     profiles: ["cli"]
     volumes:
       - ./input:/app/input
