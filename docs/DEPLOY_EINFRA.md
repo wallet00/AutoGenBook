@@ -72,7 +72,9 @@ metadata:
 type: Opaque
 stringData:
   AUTOGENBOOK_LLM_BASE_URL: "https://llm.ai.e-infra.cz/v1"
-  AUTOGENBOOK_LLM_API_KEY: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # ← tvůj klíč
+  # AUTOGENBOOK_LLM_API_KEY NEDÁVEJ do tohoto Secretu, pokud máš sdílený
+  # Secret s klíčem EINFRA_API_KEY — klíč pak namapuj v Deployment pomocí secretKeyRef
+  # (viz 2.3) a klíč zůstane uložený jen na jednom místě (bez duplikace).
   AUTOGENBOOK_LLM_MODEL: "qwen3.5"
   AUTOGENBOOK_NONINTERACTIVE: "1"
   AUTOGENBOOK_ASSUME_YES: "1"
@@ -136,6 +138,13 @@ spec:
           envFrom:
             - secretRef:
                 name: autogenbook-env
+          # Klíč z tvého sdíleného Secretu → env AUTOGENBOOK_LLM_API_KEY (bez duplikace klíče):
+          env:
+            - name: AUTOGENBOOK_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: <název-sdíleného-secretu>
+                  key: EINFRA_API_KEY
           volumeMounts:
             - name: projects
               mountPath: /app/projects
